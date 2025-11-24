@@ -87,7 +87,7 @@ class Species:
         """Verify that the generated xyz structure has the correct number of atoms
         and correct number of each element
         """
-        with open(self.directory / f"{self.name}.xyz") as file:
+        with open(self.directory / f"{self.directory_safe_name}.xyz") as file:
             lines = file.readlines()
         num_atoms = int(lines[0].strip())
         if not self.num_atoms == num_atoms:
@@ -101,7 +101,7 @@ class Species:
     def _reduce_coordinate_precision(self) -> None:
         """This can help with ORCA detecting symmetries and keeping
         geometries more constrained during optimization"""
-        with open(self.directory / f"{self.name}.xyz") as file:
+        with open(self.directory / f"{self.directory_safe_name}.xyz") as file:
             lines = file.readlines()
         for i, line in enumerate(lines):
             if i < 2:

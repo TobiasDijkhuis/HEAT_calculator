@@ -4,7 +4,7 @@ from species import (Species, get_ground_state_species,
                      get_possible_multiplicities, get_reference_species)
 
 method = "G2-MP2-SVP"
-directory = "compare_ATcT"
+directory = "compare_ATcT_reduced_precision"
 force = False
 
 colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
@@ -28,7 +28,6 @@ species_atct = {
     "CH2OH": -2.416348,
     "HCO": 9.89173,
     "HOCO": -43.293499,  # Trans HOCO
-    "N": 112.47897,
     "H2": 0.0,
     "N2": 0.0,
     "NH2": 45.15535,
@@ -50,7 +49,6 @@ smiles_dct = {
     "CH2OH": "[CH2]O",
     "HCO": "[CH]=O",
     "HOCO": "O[C]=O",
-    "N": "[N]",
     "H2": "[H][H]",
     "N2": "N#N",
     "NH2": "[NH2]",
@@ -65,7 +63,7 @@ for spec, smiles in smiles_dct.items():
     possibilities = get_possible_multiplicities(spec, smiles)
     for state in possibilities:
         state.write_input_files(
-            method=method, directory=directory, reduce_coordinate_precision=False
+            method=method, directory=directory, reduce_coordinate_precision=True
         )
         state.calculate_energy(force=force)
     ground_states[spec] = get_ground_state_species(possibilities, spec)
@@ -92,8 +90,9 @@ plt.plot([-1e10, 1e10], [-1e10, 1e10], c="gray", ls="dashed", alpha=0.5, zorder=
 plt.xlim(xlim)
 plt.ylim(xlim)
 
-plt.xlabel("Literature $\Delta H_{\mathrm{form}}$ (kcal mol$^{-1}$)")
-plt.ylabel("Calculated $\Delta H_{\mathrm{form}}$ (kcal mol$^{-1}$)")
+plt.xlabel(r"Literature $\Delta H_{\mathrm{form}}$ (kcal mol$^{-1}$)")
+plt.ylabel(r"Calculated $\Delta H_{\mathrm{form}}$ (kcal mol$^{-1}$)")
 
 plt.tight_layout()
+plt.savefig(f"comparison_ATcT_G2.pdf")
 plt.show()
