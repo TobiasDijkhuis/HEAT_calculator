@@ -133,12 +133,7 @@ RunEnd"""
             orca_path (str | Path | None): path to ORCA executable. If None, simply execute "orca". Default: None
             force (bool): whether to do the calculation, even if it was attempted previously. Default: False
         """
-        if (
-            self.split_name == "H"
-            and self.smiles == "[H]"
-            and self.charge == 0
-            and self.multiplicity == 2
-        ):
+        if self.smiles == "[H]" and self.charge == 0 and self.multiplicity == 2:
             # The energy of the hydrogen atom is -0.5 Hartree by definition
             self.energy = -0.5 * HARTREE_TO_KCALPERMOL
             return
@@ -171,7 +166,12 @@ RunEnd"""
         print(f"Running calculation of {self}")
         time_start = time()
         result = run("./run.sh", text=True, capture_output=True)
-        print(result.stderr)
+
+        if f"{orca_path}: command not found" in result.stderr:
+            raise FileNotFoundError(
+                f"Command {orca_path} was not found. Please set path to ORCA executable correctly."
+            )
+
         time_end = time()
         print(f"  Took {time_end - time_start:.2f} seconds")
         os.chdir(init_dir)
@@ -355,15 +355,23 @@ RunEnd"""
         """
         verify_type(self.multiplicity, int, "multiplicity")
         if self.multiplicity < 1:
-            raise InvalidMultiplicityError()
+            raise InvalidMultiplicityError(
+                f"multiplicity should be at least 1, but was {self.multiplicity} in {self.name}"
+            )
         if (self.multiplicity - 1.0) / 2.0 >= self.num_electrons:
-            raise InvalidMultiplicityError()
+            raise InvalidMultiplicityError(
+                f"The multiplicity cannot be higher than 2*num_electrons+1={self.num_electrons * 2 + 1}, but was {self.multiplicity} in {self.name}"
+            )
         if self.num_electrons % 2 == 0:
             if self.multiplicity % 2 != 1:
-                raise InvalidMultiplicityError()
+                raise InvalidMultiplicityError(
+                    f"Number of electrons in {self.name} is even ({self.num_electrons}), so the multiplicity should be odd, but was {self.multiplicity}"
+                )
         elif self.num_electrons % 2 == 1:
             if self.multiplicity % 2 != 0:
-                raise InvalidMultiplicityError()
+                raise InvalidMultiplicityError(
+                    f"Number of electrons in {self.name} is odd ({self.num_electrons}), so the multiplicity should be even, but was {self.multiplicity}"
+                )
 
     def format_name_as_tex(self) -> str:
         """Format the name of the Species as a string in LaTeX
