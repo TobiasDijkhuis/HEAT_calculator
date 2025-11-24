@@ -1,7 +1,6 @@
 import re
 from pathlib import Path
 import stat
-import matplotlib.pyplot as plt
 from typing import Any
 from datetime import datetime
 from typing import Literal
@@ -45,11 +44,6 @@ def set_file_executable(filepath: str | Path) -> None:
         filepath (str | Path): file to set to be executable
     """
     Path(filepath).chmod(mode=stat.S_IRWXG | stat.S_IRWXU | stat.S_IREAD)
-
-
-def get_colors() -> list[str]:
-    """Get all colors in the matplotlib color cycler"""
-    return plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
 
 def verify_type(value: Any, desired_type: Any, name: str) -> None:

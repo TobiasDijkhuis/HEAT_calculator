@@ -11,7 +11,8 @@ from utils import get_colors
 method = "G2-MP2-SVP"
 directory = "compare_ATcT"
 force = False
-colors = get_colors()
+
+colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
 calculated_atoms = get_reference_species(
     ["H", "O", "C", "S", "N"],

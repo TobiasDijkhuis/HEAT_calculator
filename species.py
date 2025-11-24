@@ -36,7 +36,6 @@ class Species:
 
     def __post_init__(self) -> None:
         verify_type(self.charge, int, "charge")
-
         self._check_charge_from_name()
 
         self.split_name = self.name.split("_")[0]
@@ -57,9 +56,10 @@ class Species:
         """Write the input files for the ORCA calculation.
 
         Args:
-            directory (str | Path | None):
-            method (Literal[available_methods]):
-            reduce_coordinate_precision (bool):
+            directory (str | Path | None): directory to calculate in. Default: None
+            method (Literal[available_methods]): method to use. Default: "G2-MP2-SVP"
+            reduce_coordinate_precision (bool): whether to reduce the precision of numbers in the generated
+                xyz file. This can help with ORCA inferring incorrect symmetries.
         """
         if directory is not None:
             self.directory = Path(directory) / self.directory_safe_name
@@ -321,15 +321,27 @@ RunEnd"""
 
     @property
     def num_atoms(self) -> int:
-        """Number of atoms inferred from molecular formula"""
+        """Number of atoms inferred from molecular formula
+
+        Returns:
+            int: number of atoms in the molecule
+        """
         return len(self.constituents)
 
     def is_atomic(self) -> bool:
-        """Whether the species is atomic"""
+        """Whether the species is atomic
+
+        Returns:
+            bool: whether the species is atomic
+        """
         return self.num_atoms == 1
 
     def _calculate_num_electrons(self) -> int:
-        """Calculate the number of electrons in the molecule"""
+        """Calculate the number of electrons in the molecule
+
+        Returns:
+            num_electrons (int): Number of electrons in the molecule
+        """
         num_electrons = 0
         for atom in self.constituents:
             num_electrons += atomic_numbers[atom]
@@ -337,7 +349,11 @@ RunEnd"""
         return num_electrons
 
     def _calculate_mass(self) -> float:
-        """Calculate the mass of the molecule"""
+        """Calculate the mass of the molecule
+
+        Returns:
+            mass (float): inferred mass of the molecule
+        """
         mass = 0.0
         for atom in self.constituents:
             mass += atomic_masses[atom]
@@ -348,7 +364,8 @@ RunEnd"""
         and vice versa.
         """
         verify_type(self.multiplicity, int, "multiplicity")
-
+        if self.multiplicity < 1:
+            raise InvalidMultiplicityError()
         if (self.multiplicity - 1.0) / 2.0 >= self.num_electrons:
             raise InvalidMultiplicityError()
         if self.num_electrons % 2 == 0:
@@ -378,6 +395,21 @@ RunEnd"""
 def get_possible_multiplicities(
     name: str, smiles: str, charge: int = 0, max_multiplicity: int = 4
 ) -> list[Species]:
+    """Get Species instances with the possible multiplicities
+
+    Args:
+        name (str):
+        smiles (str):
+        charge (int): ch
+        max_multiplicity (int): maximum multiplicity to try. Default: 4
+
+    Returns:
+        species (list[Species]): list of Species instances with possible multiplicities
+    """
+    verify_type(max_multiplicity, int, "max_multiplicity")
+    if max_multiplicity < 1:
+        raise ValueError()
+
     if max_multiplicity % 2 != 0:
         print(
             "Warning: max_multiplicity is odd, which means that more states will be checked for systems with an even number of electrons than systems with an odd amount of electrons"
@@ -392,13 +424,22 @@ def get_possible_multiplicities(
                 multiplicity=multiplicity_try,
             )
         except InvalidMultiplicityError:
+            # This combination of number of electrons and multiplicity is invalid
             continue
         species.append(spec)
     return species
 
 
 def get_ground_state_species(species_list: list[Species], name: str) -> Species:
-    """Get the ground state of a certain species."""
+    """Get the ground state of a certain species.
+
+    Args:
+        species_list (list[Species]): list of Species with calculated energies
+        name (str): name of species to filter for
+
+    Returns:
+        minimum_spec (Species): Species instance with the minimum energy
+    """
     minimum_energy = sys.float_info.max
     minimum_spec = None
     for spec in species_list:
@@ -417,14 +458,30 @@ def get_ground_state_species(species_list: list[Species], name: str) -> Species:
 
 def get_reference_species(
     reference_atoms: list[str],
+    max_multiplicity: int = 4,
     orca_path: str | Path | None = None,
     directory: str | Path | None = None,
     method: Literal[available_methods] = "G2-MP2-SVP",
     force: bool = False,
 ) -> dict[str, Species]:
+    """Get the reference species in the electronic ground states
+
+    Args:
+        reference_atoms (list[str]): list of atoms to calculate reference energies for
+        max_multiplicity (int): maximum multiplicity to try. Default: 4
+        orca_path (str | Path | None): path to ORCA executable. If None, simply execute "orca". Default: None
+        directory (str | Path | None): directory to calculate in. Default: None
+        method (Literal[available_methods]): method to use. Default: "G2-MP2-SVP"
+        force (bool): whether to do the calculation, even if it was attempted previously. Default: False
+
+    Return:
+        ground_species (dict[str, Species]): ground state reference atoms
+    """
     ground_species = {}
     for atom in reference_atoms:
-        possibilities = get_possible_multiplicities(atom, f"[{atom}]", charge=0)
+        possibilities = get_possible_multiplicities(
+            atom, f"[{atom}]", charge=0, max_multiplicity=max_multiplicity
+        )
         for state in possibilities:
             state.write_input_files(directory=directory, method=method)
             state.calculate_energy(orca_path=orca_path, force=force)
