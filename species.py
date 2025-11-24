@@ -76,8 +76,13 @@ class Species:
         with open(self.directory / f"{self.directory_safe_name}.smi", "w") as file:
             file.write(self.smiles)
         command = f"obabel --title {self.name} -ismi {self.directory / self.directory_safe_name}.smi -oxyz -O {self.directory / self.directory_safe_name}.xyz -h --gen3d --best"
-        result = run(command.split(), text=True, capture_output=True)
-        if result.stderr and not result.stderr == "1 molecule converted\n":
+        try:
+            result = run(command.split(), text=True, capture_output=True)
+        except FileNotFoundError as e:
+            raise FileNotFoundError(
+                f"Command 'obabel' was not found. OpenBabel is required for 3D geometry generation.\nSee https://openbabel.org/docs/Installation/install.html"
+            ) from e
+        if not result.stderr == "1 molecule converted\n":
             raise RuntimeError(result.stderr)
 
         self._verify_generated_xyz()
@@ -88,7 +93,7 @@ class Species:
         num_atoms = int(lines[0].strip())
         if not self.num_atoms == num_atoms:
             raise IncorrectGeneratedXYZ(
-                f"Number of atoms in generated xyz file ({num_atoms}) does not match the number of atoms inferred from the molecular formula ({self.num_atoms}) of {self.split_name}"
+                f"Number of atoms in generated xyz file ({num_atoms}) does not match the number of atoms inferred from the molecular formula ({self.num_atoms}) of {self.split_name}. Check smiles ({self.smiles})"
             )
         atoms = [line.split()[0] for line in lines[2:]]
         if not sorted(atoms) == sorted(self.constituents):
@@ -110,7 +115,7 @@ class Species:
         with open(self.directory / f"{self.name}.xyz", "w") as file:
             file.write("\n".join(lines))
 
-    def calculate_energy(self, force: bool = False) -> None:
+    def calculate_energy(self, orca_path: str | Path, force: bool = False) -> None:
         if (
             self.split_name == "H"
             and self.smiles == "[H]"
@@ -137,7 +142,7 @@ class Species:
             )
             return
 
-        command = f"#!/usr/bin/bash\n\n/opt/orca-6.1.0/orca {self.directory_safe_name}.inp > {self.directory_safe_name}.out\n\nrm *tmp*\nrm *gbw\nrm *densities*"
+        command = f"#!/usr/bin/bash\n\n{orca_path} {self.directory_safe_name}.inp > {self.directory_safe_name}.out\n\nrm *tmp*\nrm *gbw\nrm *densities*"
         init_dir = os.getcwd()
         os.chdir(self.directory)
         with open("run.sh", "w") as file:
@@ -352,6 +357,7 @@ def get_ground_state_species(species_list: list[Species], name: str) -> Species:
 
 def get_reference_species(
     reference_atoms: list[str],
+    orca_path: str | Path,
     directory: str | Path | None = None,
     method: Literal[available_methods] = "G2-MP2-SVP",
     force: bool = False,
@@ -361,6 +367,6 @@ def get_reference_species(
         possibilities = get_possible_multiplicities(atom, f"[{atom}]", charge=0)
         for state in possibilities:
             state.write_input_files(directory=directory, method=method)
-            state.calculate_energy(force=force)
+            state.calculate_energy(orca_path, force=force)
         ground_species[atom] = get_ground_state_species(possibilities, atom)
     return ground_species

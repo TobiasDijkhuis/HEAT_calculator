@@ -4,6 +4,7 @@ import stat
 import matplotlib.pyplot as plt
 from typing import Any
 from datetime import datetime
+from typing import Literal
 
 
 class InvalidMultiplicityError(Exception):

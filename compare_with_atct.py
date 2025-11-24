@@ -15,9 +15,13 @@ directory = "compare_ATcT"
 force = False
 colors = get_colors()
 
-
+orca_path = "/opt/orca-6.1.0/orca"
 calculated_atoms = get_reference_species(
-    ["H", "O", "C", "S", "N"], method=method, directory=directory, force=force
+    ["H", "O", "C", "S", "N"],
+    orca_path,
+    method=method,
+    directory=directory,
+    force=force,
 )
 
 species_atct = {
@@ -71,7 +75,7 @@ for spec, smiles in smiles_dct.items():
         state.write_input_files(
             method=method, directory=directory, reduce_coordinate_precision=False
         )
-        state.calculate_energy(force=force)
+        state.calculate_energy(orca_path, force=force)
     ground_states[spec] = get_ground_state_species(possibilities, spec)
 
 plt.figure()
