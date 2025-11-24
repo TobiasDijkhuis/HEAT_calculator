@@ -1,28 +1,28 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from uclchem.makerates.species import Species as UCLCHEMSpecies
-from pathlib import Path
-from collections import Counter
-from subprocess import run
-from typing import Literal
-from time import time
-import sys
 import os
+import sys
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+from subprocess import run
+from time import time
+from typing import Literal
 
+from data import (
+    HARTREE_TO_KCALPERMOL,
+    atomic_masses,
+    atomic_numbers,
+    element_list,
+    experimental_formation_0K,
+)
 from utils import (
-    InvalidMultiplicityError,
     IncorrectGeneratedXYZ,
+    InvalidMultiplicityError,
     available_methods,
     read_final_energy_from_compound,
     set_file_executable,
     verify_type,
-)
-from data import (
-    atomic_masses,
-    atomic_numbers,
-    experimental_formation_0K,
-    HARTREE_TO_KCALPERMOL,
 )
 
 
@@ -36,7 +36,10 @@ class Species:
     def __post_init__(self) -> None:
         verify_type(self.charge, int, "charge")
 
+        self._check_charge_from_name()
+
         self.split_name = self.name.split("_")[0]
+        self.directory_safe_name = self.name.replace(")", "b").replace("(", "b")
 
         self.constituents = self._find_constituents()
         self.mass = self._calculate_mass()
@@ -59,9 +62,9 @@ class Species:
             method += "-ATOM"
 
         if directory is not None:
-            self.directory = Path(directory) / self.name
+            self.directory = Path(directory) / self.directory_safe_name
         else:
-            self.directory = Path(self.name)
+            self.directory = Path(self.directory_safe_name)
         if not self.directory.is_dir():
             self.directory.mkdir(parents=True)
 
@@ -72,18 +75,18 @@ class Species:
         input = f"""# Automatically generated ORCA input at TIME HERE
 # Calculate high accuracy energies for the use of calculating thermodynamic values
 !compound[{method}]
-* xyzfile {self.charge} {self.multiplicity} {self.name}.xyz
+* xyzfile {self.charge} {self.multiplicity} {self.directory_safe_name}.xyz
 %compound[{method}]
     with
-        molecule = "{self.name}.xyz"
+        molecule = "{self.directory_safe_name}.xyz"
 RunEnd"""
-        with open(self.directory / f"{self.name}.inp", "w") as file:
+        with open(self.directory / f"{self.directory_safe_name}.inp", "w") as file:
             file.write(input)
 
     def _generate_xyz(self) -> None:
-        with open(self.directory / f"{self.name}.smi", "w") as file:
+        with open(self.directory / f"{self.directory_safe_name}.smi", "w") as file:
             file.write(self.smiles)
-        command = f"obabel --title {self.name} -ismi {self.directory/self.name}.smi -oxyz -O {self.directory/self.name}.xyz -h --gen3d --best"
+        command = f"obabel --title {self.name} -ismi {self.directory / self.directory_safe_name}.smi -oxyz -O {self.directory / self.directory_safe_name}.xyz -h --gen3d --best"
         result = run(command.split(), text=True, capture_output=True)
         if result.stderr and not result.stderr == "1 molecule converted\n":
             raise RuntimeError(result.stderr)
@@ -135,14 +138,16 @@ RunEnd"""
             )
             self.energy = None
             return
-        compound_path = self.directory / f"{self.name}_compound_detailed.txt"
+        compound_path = (
+            self.directory / f"{self.directory_safe_name}_compound_detailed.txt"
+        )
         if not force and compound_path.is_file():
             self.energy = (
                 read_final_energy_from_compound(compound_path) * HARTREE_TO_KCALPERMOL
             )
             return
 
-        command = f"#!/usr/bin/bash\n\n/opt/orca-6.1.0/orca {self.name}.inp > {self.name}.out\n\nrm *tmp*\nrm *gbw\nrm *densities*"
+        command = f"#!/usr/bin/bash\n\n/opt/orca-6.1.0/orca {self.directory_safe_name}.inp > {self.directory_safe_name}.out\n\nrm *tmp*\nrm *gbw\nrm *densities*"
         init_dir = os.getcwd()
         os.chdir(self.directory)
         with open("run.sh", "w") as file:
@@ -160,7 +165,7 @@ RunEnd"""
         if not compound_path.is_file():
             print("  Calculation failed.")
             self.energy = None
-            with open(self.directory / f"{self.name}.out") as file:
+            with open(self.directory / f"{self.directory_safe_name}.out") as file:
                 lines = file.readlines()
             for line in lines[::-1]:
                 if (
@@ -191,11 +196,89 @@ RunEnd"""
         return formation_enthalpy
 
     def _find_constituents(self) -> list[str]:
-        spec = UCLCHEMSpecies([self.split_name] + [0] * 11)
-        constituents = spec.find_constituents(quiet=True)
-        if isinstance(constituents, Counter):
-            constituents = list(constituents.elements())
-        return [el.capitalize() for el in constituents]
+        """Loop through the species' name and work out what its consituent
+        atoms are."""
+        # Adapted from https://github.com/uclchem/UCLCHEM/blob/main/src/uclchem/makerates/species.py
+        i = 0
+        atoms = []
+        currently_in_bracket = False
+        # loop over characters in species name to work out what it is made of
+        while i < len(self.split_name):
+            # if character isn't a + or - then check it, otherwise move on
+            if self.split_name[i] not in ["+", "-", "(", ")"]:
+                if i + 1 < len(self.split_name):
+                    # if next two characters are (eg) 'MG' then atom is Mg not M and G
+                    if self.split_name[i : i + 3] in element_list:
+                        j = i + 3
+                    elif self.split_name[i : i + 2] in element_list:
+                        j = i + 2
+                    # otherwise work out which element it is
+                    elif self.split_name[i] in element_list:
+                        j = i + 1
+
+                # if there aren't two characters left just try next one
+                elif self.split_name[i] in element_list:
+                    j = i + 1
+                # if we've found a new element check for numbers otherwise print error
+                if j > i:
+                    if currently_in_bracket:
+                        bracket_content.append(self.split_name[i:j])
+                    else:
+                        atoms.append(self.split_name[i:j])  # add element to list
+                    if j < len(self.split_name):
+                        if self.split_name[j].isdigit():
+                            if int(self.split_name[j]) > 1:
+                                for k in range(1, int(self.split_name[j])):
+                                    if currently_in_bracket:
+                                        bracket_content.append(self.split_name[i:j])
+                                    else:
+                                        atoms.append(self.split_name[i:j])
+                                i = j + 1
+                            else:
+                                i = j
+                        else:
+                            i = j
+                    else:
+                        i = j
+                else:
+                    raise ValueError(
+                        f"Contains elements not in element list: {self.split_name}"
+                    )
+            else:
+                # if symbol is start of a bracketed part of molecule, keep track
+                if self.split_name[i] == "(":
+                    currently_in_bracket = True
+                    bracket_content = []
+                    i += 1
+                # if it's the end then add bracket contents to list
+                elif self.split_name[i] == ")":
+                    currently_in_bracket = False
+                    if self.split_name[i + 1].isdigit():
+                        for k in range(0, int(self.split_name[i + 1])):
+                            atoms.extend(bracket_content)
+                        i += 2
+                    else:
+                        atoms.extend(bracket_content)
+                        i += 1
+                # otherwise move on
+                else:
+                    i += 1
+        return atoms
+
+    def _check_charge_from_name(self) -> None:
+        if "-" in self.name:
+            if self.charge != -1:
+                print(
+                    f"Found '-' in name of species {self}, but charge was {self.charge}. Setting charge to -1"
+                )
+                self.charge = -1
+
+        if "+" in self.name:
+            if self.charge != 1:
+                print(
+                    f"Found '+' in name of species {self}, but charge was {self.charge}. Setting charge to 1"
+                )
+                self.charge = 1
 
     @property
     def num_atoms(self) -> int:

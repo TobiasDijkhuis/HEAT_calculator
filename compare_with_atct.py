@@ -38,6 +38,8 @@ species_atct = {
     "NH2": 45.15535,
     "CH3": 35.821941,
     "CH2NH2": 38.10468,
+    "(CH3)2": -16.34799,
+    "OH-": -33.2373327,
 }
 
 smiles_dct = {
@@ -58,6 +60,8 @@ smiles_dct = {
     "NH2": "[NH2]",
     "CH3": "[CH3]",
     "CH2NH2": "[CH2]N",
+    "(CH3)2": "CC",
+    "OH-": "[OH]-",
 }
 
 ground_states = {}

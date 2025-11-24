@@ -248,4 +248,6 @@ atomic_numbers = {
     "Og": 118,
 }
 
+element_list = list(atomic_numbers.keys())
+
 HARTREE_TO_KCALPERMOL = 627.509
