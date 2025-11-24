@@ -3,6 +3,7 @@ from pathlib import Path
 import stat
 import matplotlib.pyplot as plt
 from typing import Any
+from datetime import datetime
 
 
 class InvalidMultiplicityError(Exception):
@@ -11,9 +12,6 @@ class InvalidMultiplicityError(Exception):
 
 class IncorrectGeneratedXYZ(Exception):
     """Error to indicate that a generated XYZ file does not match the desired molecular formula"""
-
-
-available_methods = ["G2-MP2", "G2-MP2-SV", "G2-MP2-SVP"]  # TODO: Add ccCC to this.
 
 
 def read_final_energy_from_compound(filepath: str | Path) -> float:
@@ -45,3 +43,44 @@ def verify_type(value: Any, desired_type: Any, name: str) -> None:
         raise TypeError(
             f"{name} should be of type {desired_type} but was {type(value)}"
         )
+
+
+# See https://www.faccts.de/docs/orca/6.0/manual/contents/detailed/compound.html#list-of-known-simple-input-commands
+available_methods = [
+    "G2-MP2",
+    "G2-MP2-SV",
+    "G2-MP2-SVP",
+    "CCCA-DZ-QCISD-T",
+    "CCCA-TZ-QCISD-T",
+    "CCCA-ATZ-QCISD-T",
+    "CCCA-CBS-1",
+    "CCCA-CBS-2",
+]
+
+
+def get_method(
+    is_atomic: bool, method: Literal[available_methods] = "G2-MP2-SVP"
+) -> str:
+    method = method.upper()
+    if "ATOM" in method:
+        raise ValueError(
+            f"This code will take care of adding ATOM to the method if necessary."
+        )
+    if method not in available_methods:
+        raise ValueError(
+            f"Method should be one of {available_methods}, but was {method}.\nSee https://www.faccts.de/docs/orca/6.0/manual/contents/detailed/compound.html#list-of-known-simple-input-commands for more info"
+        )
+    if is_atomic:
+        method += "-ATOM"
+    return method
+
+
+def get_orca_input(charge, multiplicity, xyz_path, method) -> str:
+    return f"""# Automatically generated ORCA input at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+# Calculate high accuracy energies for the use of calculating thermodynamic values
+!compound[{method}]
+* xyzfile {charge} {multiplicity} {xyz_path}
+%compound[{method}]
+    with
+        molecule = {xyz_path}
+RunEnd"""

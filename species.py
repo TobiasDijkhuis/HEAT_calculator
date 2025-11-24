@@ -19,10 +19,11 @@ from data import (
 from utils import (
     IncorrectGeneratedXYZ,
     InvalidMultiplicityError,
-    available_methods,
     read_final_energy_from_compound,
     set_file_executable,
     verify_type,
+    get_method,
+    get_orca_input,
 )
 
 
@@ -49,18 +50,10 @@ class Species:
 
     def write_input_files(
         self,
-        directory: str | Path | None,
+        directory: str | Path | None = None,
         method: Literal[available_methods] = "G2-MP2-SVP",
         reduce_coordinate_precision: bool = True,
     ) -> None:
-        method = method.upper()
-        if "ATOM" in method:
-            raise ValueError()
-        if method not in available_methods:
-            raise ValueError()
-        if self.is_atomic():
-            method += "-ATOM"
-
         if directory is not None:
             self.directory = Path(directory) / self.directory_safe_name
         else:
@@ -72,14 +65,10 @@ class Species:
         if reduce_coordinate_precision:
             self._reduce_coordinate_precision()
 
-        input = f"""# Automatically generated ORCA input at TIME HERE
-# Calculate high accuracy energies for the use of calculating thermodynamic values
-!compound[{method}]
-* xyzfile {self.charge} {self.multiplicity} {self.directory_safe_name}.xyz
-%compound[{method}]
-    with
-        molecule = "{self.directory_safe_name}.xyz"
-RunEnd"""
+        method = get_method(self.is_atomic(), method=method)
+        input = get_orca_input(
+            self.charge, self.multiplicity, f"{self.directory_safe_name}.xyz", method
+        )
         with open(self.directory / f"{self.directory_safe_name}.inp", "w") as file:
             file.write(input)
 
@@ -128,6 +117,7 @@ RunEnd"""
             and self.charge == 0
             and self.multiplicity == 2
         ):
+            # The energy of the hydrogen atom is -0.5 Hartree by definition
             self.energy = -0.5 * HARTREE_TO_KCALPERMOL
             return
 
@@ -267,13 +257,14 @@ RunEnd"""
 
     def _check_charge_from_name(self) -> None:
         if "-" in self.name:
+            print(f"Warning: Assuming the ion {self.name} is singly charged")
             if self.charge != -1:
                 print(
                     f"Found '-' in name of species {self}, but charge was {self.charge}. Setting charge to -1"
                 )
                 self.charge = -1
-
-        if "+" in self.name:
+        elif "+" in self.name:
+            print(f"Warning: Assuming the ion {self.name} is singly charged")
             if self.charge != 1:
                 print(
                     f"Found '+' in name of species {self}, but charge was {self.charge}. Setting charge to 1"
