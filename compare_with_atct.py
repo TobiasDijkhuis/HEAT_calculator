@@ -1,12 +1,7 @@
 import matplotlib.pyplot as plt
 
-from species import (
-    Species,
-    get_ground_state_species,
-    get_possible_multiplicities,
-    get_reference_species,
-)
-from utils import get_colors
+from species import (Species, get_ground_state_species,
+                     get_possible_multiplicities, get_reference_species)
 
 method = "G2-MP2-SVP"
 directory = "compare_ATcT"
@@ -80,7 +75,6 @@ for spec in species_atct:
     formation_enthalpy = ground_states[spec].calculate_enthalpy_of_formation(
         calculated_atoms
     )
-    print(ground_states[spec].split_name, formation_enthalpy, species_atct[spec])
     if ground_states[spec].num_electrons % 2 == 0:
         marker = "o"
         color = colors[0]
