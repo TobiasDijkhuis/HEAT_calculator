@@ -1,9 +1,9 @@
+import os
 import re
-from pathlib import Path
 import stat
-from typing import Any
 from datetime import datetime
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal
 
 
 class InvalidMultiplicityError(Exception):
@@ -43,7 +43,7 @@ def set_file_executable(filepath: str | Path) -> None:
     Args:
         filepath (str | Path): file to set to be executable
     """
-    Path(filepath).chmod(mode=stat.S_IRWXG | stat.S_IRWXU | stat.S_IREAD)
+    os.chmod(filepath, mode=stat.S_IRWXG | stat.S_IRWXU | stat.S_IREAD)
 
 
 def verify_type(value: Any, desired_type: Any, name: str) -> None:

@@ -3,28 +3,18 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from subprocess import run
 from time import time
 from typing import Literal
-from datetime import datetime
 
-from data import (
-    HARTREE_TO_KCALPERMOL,
-    atomic_masses,
-    atomic_numbers,
-    element_list,
-    experimental_formation_0K,
-)
-from utils import (
-    IncorrectGeneratedXYZ,
-    InvalidMultiplicityError,
-    read_final_energy_from_compound,
-    set_file_executable,
-    verify_type,
-    get_method,
-    available_methods,
-)
+from data import (HARTREE_TO_KCALPERMOL, atomic_masses, atomic_numbers,
+                  element_list, experimental_formation_0K)
+from utils import (IncorrectGeneratedXYZ, InvalidMultiplicityError,
+                   available_methods, get_method,
+                   read_final_energy_from_compound, set_file_executable,
+                   verify_type)
 
 
 @dataclass
@@ -125,7 +115,7 @@ class Species:
             file.write("\n".join(lines))
 
     def _get_orca_input(self, method: Literal[available_methods] = "G2-MP2-SVP") -> str:
-        return f"""# Automatically generated ORCA input at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        return f"""# Automatically generated ORCA input at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 # Calculate high accuracy energies for the use of calculating thermodynamic values
 !compound[{method}]
 * xyzfile {self.charge} {self.multiplicity} {self.directory_safe_name}.xyz

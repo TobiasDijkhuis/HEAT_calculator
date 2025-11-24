@@ -3,7 +3,7 @@ experimental_formation_0K = {
     "H": 51.633365,
     "C": 170.02486,
     "S": 66.16396,
-    "SI": 0.0,
+    "Si": 107.6315,
     "N": 112.47897,
 }  # Taken from ACTC, in kcal/mol
 
