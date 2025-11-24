@@ -8,6 +8,7 @@ from pathlib import Path
 from subprocess import run
 from time import time
 from typing import Literal
+from datetime import datetime
 
 from data import (
     HARTREE_TO_KCALPERMOL,
@@ -23,7 +24,7 @@ from utils import (
     set_file_executable,
     verify_type,
     get_method,
-    get_orca_input,
+    available_methods,
 )
 
 
@@ -54,6 +55,13 @@ class Species:
         method: Literal[available_methods] = "G2-MP2-SVP",
         reduce_coordinate_precision: bool = True,
     ) -> None:
+        """Write the input files for the ORCA calculation.
+
+        Args:
+            directory (str | Path | None):
+            method (Literal[available_methods]):
+            reduce_coordinate_precision (bool):
+        """
         if directory is not None:
             self.directory = Path(directory) / self.directory_safe_name
         else:
@@ -66,13 +74,12 @@ class Species:
             self._reduce_coordinate_precision()
 
         method = get_method(self.is_atomic(), method=method)
-        input = get_orca_input(
-            self.charge, self.multiplicity, f"{self.directory_safe_name}.xyz", method
-        )
+        input = self._get_orca_input(method=method)
         with open(self.directory / f"{self.directory_safe_name}.inp", "w") as file:
             file.write(input)
 
     def _generate_xyz(self) -> None:
+        """Generate a 3D structure from the smiles code."""
         with open(self.directory / f"{self.directory_safe_name}.smi", "w") as file:
             file.write(self.smiles)
         command = f"obabel --title {self.name} -ismi {self.directory / self.directory_safe_name}.smi -oxyz -O {self.directory / self.directory_safe_name}.xyz -h --gen3d --best"
@@ -88,7 +95,10 @@ class Species:
         self._verify_generated_xyz()
 
     def _verify_generated_xyz(self) -> None:
-        with open(self.directory / f"{self.name}.xyz", "r") as file:
+        """Verify that the generated xyz structure has the correct number of atoms
+        and correct number of each element
+        """
+        with open(self.directory / f"{self.name}.xyz") as file:
             lines = file.readlines()
         num_atoms = int(lines[0].strip())
         if not self.num_atoms == num_atoms:
@@ -115,7 +125,25 @@ class Species:
         with open(self.directory / f"{self.name}.xyz", "w") as file:
             file.write("\n".join(lines))
 
-    def calculate_energy(self, orca_path: str | Path, force: bool = False) -> None:
+    def _get_orca_input(self, method: Literal[available_methods] = "G2-MP2-SVP") -> str:
+        return f"""# Automatically generated ORCA input at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+# Calculate high accuracy energies for the use of calculating thermodynamic values
+!compound[{method}]
+* xyzfile {self.charge} {self.multiplicity} {self.directory_safe_name}.xyz
+%compound[{method}]
+    with
+        molecule = {self.directory_safe_name}.xyz
+RunEnd"""
+
+    def calculate_energy(
+        self, orca_path: str | Path | None = None, force: bool = False
+    ) -> None:
+        """Calculate the energy of the Species.
+
+        Args:
+            orca_path (str | Path | None): path to ORCA executable. If None, simply execute "orca". Default: None
+            force (bool): whether to do the calculation, even if it was attempted previously. Default: False
+        """
         if (
             self.split_name == "H"
             and self.smiles == "[H]"
@@ -142,6 +170,8 @@ class Species:
             )
             return
 
+        if orca_path is None:
+            orca_path = "orca"
         command = f"#!/usr/bin/bash\n\n{orca_path} {self.directory_safe_name}.inp > {self.directory_safe_name}.out\n\nrm *tmp*\nrm *gbw\nrm *densities*"
         init_dir = os.getcwd()
         os.chdir(self.directory)
@@ -182,6 +212,15 @@ class Species:
         calculated_reference_atoms: dict[str, Species],
         experimental_reference_atoms: dict[str, float] = experimental_formation_0K,
     ) -> float:
+        """Calculate the enthalpy of formation
+
+        Args:
+            calculated_reference_atoms (dict[str, Species]):
+            experimental_reference_atoms (dict[str, float]):
+
+        Returns:
+            formation_enthalpy (float): enthalpy of formation in kcal/mol
+        """
         formation_enthalpy = self.energy
         for atom in self.constituents:
             formation_enthalpy += (
@@ -192,7 +231,11 @@ class Species:
 
     def _find_constituents(self) -> list[str]:
         """Loop through the species' name and work out what its consituent
-        atoms are."""
+        atoms are.
+
+        Returns:
+            atoms (list[str]): list of atoms in molecule
+        """
         # Adapted from https://github.com/uclchem/UCLCHEM/blob/main/src/uclchem/makerates/species.py
         i = 0
         atoms = []
@@ -261,16 +304,17 @@ class Species:
         return atoms
 
     def _check_charge_from_name(self) -> None:
+        """Checks the charge from the name, and corrects the given charge"""
         if "-" in self.name:
-            print(f"Warning: Assuming the ion {self.name} is singly charged")
             if self.charge != -1:
+                print(f"Warning: Assuming the ion {self.name} is singly charged")
                 print(
                     f"Found '-' in name of species {self}, but charge was {self.charge}. Setting charge to -1"
                 )
                 self.charge = -1
         elif "+" in self.name:
-            print(f"Warning: Assuming the ion {self.name} is singly charged")
             if self.charge != 1:
+                print(f"Warning: Assuming the ion {self.name} is singly charged")
                 print(
                     f"Found '+' in name of species {self}, but charge was {self.charge}. Setting charge to 1"
                 )
@@ -278,12 +322,15 @@ class Species:
 
     @property
     def num_atoms(self) -> int:
+        """Number of atoms inferred from molecular formula"""
         return len(self.constituents)
 
     def is_atomic(self) -> bool:
+        """Whether the species is atomic"""
         return self.num_atoms == 1
 
     def _calculate_num_electrons(self) -> int:
+        """Calculate the number of electrons in the molecule"""
         num_electrons = 0
         for atom in self.constituents:
             num_electrons += atomic_numbers[atom]
@@ -291,12 +338,16 @@ class Species:
         return num_electrons
 
     def _calculate_mass(self) -> float:
+        """Calculate the mass of the molecule"""
         mass = 0.0
         for atom in self.constituents:
             mass += atomic_masses[atom]
         return mass
 
     def _verify_multiplicity(self) -> None:
+        """Verify the given multiplicity. If the number of electrons is even, the multiplicity should be odd
+        and vice versa.
+        """
         verify_type(self.multiplicity, int, "multiplicity")
 
         if (self.multiplicity - 1.0) / 2.0 >= self.num_electrons:
@@ -309,9 +360,19 @@ class Species:
                 raise InvalidMultiplicityError()
 
     def format_name_as_tex(self) -> str:
+        """Format the name of the Species as a string in LaTeX
+
+        Returns:
+            str: formatted name
+        """
         return f"\\ch{{{self.split_name}}}"
 
     def format_smiles_as_tex(self) -> str:
+        """Format the smiles of the Species as a string in LaTeX
+
+        Returns:
+            str: formatted smiles
+        """
         return self.smiles.replace("#", "\\#")
 
 
@@ -357,7 +418,7 @@ def get_ground_state_species(species_list: list[Species], name: str) -> Species:
 
 def get_reference_species(
     reference_atoms: list[str],
-    orca_path: str | Path,
+    orca_path: str | Path | None = None,
     directory: str | Path | None = None,
     method: Literal[available_methods] = "G2-MP2-SVP",
     force: bool = False,
@@ -367,6 +428,6 @@ def get_reference_species(
         possibilities = get_possible_multiplicities(atom, f"[{atom}]", charge=0)
         for state in possibilities:
             state.write_input_files(directory=directory, method=method)
-            state.calculate_energy(orca_path, force=force)
+            state.calculate_energy(orca_path=orca_path, force=force)
         ground_species[atom] = get_ground_state_species(possibilities, atom)
     return ground_species
