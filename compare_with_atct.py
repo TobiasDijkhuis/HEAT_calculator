@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 
-from species import (Species, get_ground_state_species,
+from species import (Species, calculate_dct_species, get_ground_state_species,
                      get_possible_multiplicities, get_reference_species)
 
 method = "G2-MP2-SVP"
@@ -16,6 +16,8 @@ calculated_atoms = get_reference_species(
     force=force,
 )
 
+# Formation enthalpies at 0 K taken from ATcT ver. 1.220,
+# in kcal/mol
 species_atct = {
     "H2O": -57.0994264,
     "OH": 8.909178,
@@ -28,8 +30,8 @@ species_atct = {
     "CH2OH": -2.416348,
     "HCO": 9.89173,
     "HOCO": -43.293499,  # Trans HOCO
-    "H2": 0.0,
-    "N2": 0.0,
+    "H2": 0.0,  # By definition
+    "N2": 0.0,  # By definition
     "NH2": 45.15535,
     "CH3": 35.821941,
     "CH2NH2": 38.10468,
@@ -37,38 +39,42 @@ species_atct = {
     "OH-": -33.2373327,
 }
 
+# Species to calculate.
+# In reality, we know the ground state multiplities of many of these of course,
+# but this is just to benchmark, and to make sure that we get the correct ones.
 smiles_dct = {
-    "H2O": "O",
-    "OH": "[O][H]",
-    "CO": "[C+]#[O+]",
-    "CO2": "O=C=O",
-    "SO": "[S]#O",
-    "SO2": "O=S=O",
-    "CH3OH": "CO",
-    "CH3O": "C[O]",
-    "CH2OH": "[CH2]O",
-    "HCO": "[CH]=O",
-    "HOCO": "O[C]=O",
-    "H2": "[H][H]",
-    "N2": "N#N",
-    "NH2": "[NH2]",
-    "CH3": "[CH3]",
-    "CH2NH2": "[CH2]N",
-    "(CH3)2": "CC",
-    "OH-": "[OH]-",
+    "H2O": ("O", 0, None),
+    "OH": ("[O][H]", 0, None),
+    "CO": ("[C+]#[O+]", 0, None),
+    "CO2": ("O=C=O", 0, None),
+    "SO": ("[S]#O", 0, None),
+    "SO2": ("O=S=O", 0, None),
+    "CH3OH": ("CO", 0, None),
+    "CH3O": ("C[O]", 0, None),
+    "CH2OH": ("[CH2]O", 0, None),
+    "HCO": ("[CH]=O", 0, None),
+    "HOCO": ("O[C]=O", 0, None),
+    "H2": ("[H][H]", 0, None),
+    "N2": ("N#N", 0, None),
+    "NH2": ("[NH2]", 0, None),
+    "CH3": ("[CH3]", 0, None),
+    "CH2NH2": ("[CH2]N", 0, None),
+    "(CH3)2": ("CC", 0, None),
+    "OH-": ("[OH]-", -1, None),
 }
 
-ground_states = {}
-for spec, smiles in smiles_dct.items():
-    possibilities = get_possible_multiplicities(spec, smiles)
-    for state in possibilities:
-        state.write_input_files(
-            method=method, directory=directory, reduce_coordinate_precision=True
-        )
-        state.calculate_energy(force=force)
-    ground_states[spec] = get_ground_state_species(possibilities, spec)
+assert len(smiles_dct) == len(species_atct), "Not same length."
+
+ground_states = calculate_dct_species(
+    smiles_dct,
+    directory=directory,
+    method=method,
+    reduce_coordinate_precision=True,
+    force=force,
+)
 
 plt.figure()
+running_sum_abs_deviation = 0.0
 for spec in species_atct:
     formation_enthalpy = ground_states[spec].calculate_enthalpy_of_formation(
         calculated_atoms
@@ -79,20 +85,39 @@ for spec in species_atct:
     else:
         marker = "X"
         color = colors[1]
-    plt.scatter(species_atct[spec], formation_enthalpy, c=color, marker=marker)
+    plt.scatter(
+        species_atct[spec],
+        formation_enthalpy,
+        c=color,
+        marker=marker,
+        linewidth=0.05,
+        edgecolor="k",
+    )
+    running_sum_abs_deviation += abs(formation_enthalpy - species_atct[spec])
 
-
+mean_absolute_deviaton = running_sum_abs_deviation / len(species_atct)
 xlim = plt.gca().get_xlim()
 ylim = plt.gca().get_ylim()
 
 plt.gca().set_aspect("equal")
 plt.plot([-1e10, 1e10], [-1e10, 1e10], c="gray", ls="dashed", alpha=0.5, zorder=0.99)
-plt.xlim(xlim)
-plt.ylim(xlim)
+plt.xlim(ylim)
+plt.ylim(ylim)
 
 plt.xlabel(r"Literature $\Delta H_{\mathrm{form}}$ (kcal mol$^{-1}$)")
 plt.ylabel(r"Calculated $\Delta H_{\mathrm{form}}$ (kcal mol$^{-1}$)")
 
+plt.text(
+    0.05,
+    0.95,
+    f"Mean absolute deviation:\n{mean_absolute_deviaton:.2f} kcal mol$^{{-1}}$",
+    transform=plt.gca().transAxes,
+    ha="left",
+    va="top",
+    fontsize=8.5,
+)
+
 plt.tight_layout()
+
 plt.savefig(f"comparison_ATcT_G2.pdf")
 plt.show()

@@ -248,6 +248,8 @@ atomic_numbers = {
     "Og": 118,
 }
 
+atom_ground_state_multiplicities = {"H": 2, "O": 3, "C": 3, "N": 4, "S": 3}
+
 element_list = list(atomic_numbers.keys())
 
 HARTREE_TO_KCALPERMOL = 627.509

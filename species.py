@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from subprocess import run
 from time import time
 from typing import Literal
 
-from data import (HARTREE_TO_KCALPERMOL, atomic_masses, atomic_numbers,
-                  element_list, experimental_formation_0K)
+from data import (HARTREE_TO_KCALPERMOL, atom_ground_state_multiplicities,
+                  atomic_masses, atomic_numbers, element_list,
+                  experimental_formation_0K)
 from utils import (IncorrectGeneratedXYZ, InvalidMultiplicityError,
                    available_methods, get_method,
                    read_final_energy_from_compound, set_file_executable,
@@ -22,9 +23,12 @@ class Species:
     name: str
     smiles: str
     charge: int = 0
-    multiplicity: int = 0
+    multiplicity: int = 1
+    energy: float | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
+        verify_type(self.name, str, "name")
+        verify_type(self.smiles, str, "smiles")
         verify_type(self.charge, int, "charge")
         self._check_charge_from_name()
 
@@ -79,7 +83,9 @@ class Species:
                 f"Command 'obabel' was not found. OpenBabel is required for 3D geometry generation.\nSee https://openbabel.org/docs/Installation/install.html"
             ) from e
         if not result.stderr == "1 molecule converted\n":
-            raise RuntimeError(result.stderr)
+            raise RuntimeError(
+                f"Error in generating xyz file of {self}\n{result.stderr}"
+            )
 
         self._verify_generated_xyz()
 
@@ -143,7 +149,6 @@ RunEnd"""
             print(
                 f"Tried to run calculation for {self.name} previously, but optimization failed."
             )
-            self.energy = None
             return
         compound_path = (
             self.directory / f"{self.directory_safe_name}_compound_detailed.txt"
@@ -154,6 +159,17 @@ RunEnd"""
             )
             return
 
+        # Is this even necessary? The code will already crash before because Species.directory is
+        # assigned in Species.write_input_files.
+        if not (self.directory / f"{self.directory_safe_name}.xyz").is_file():
+            raise FileNotFoundError(
+                f"File {self.directory / f'{self.directory_safe_name}.xyz'} does not exist. Use Species.write_input_files to write the necessary input files."
+            )
+        if not (self.directory / f"{self.directory_safe_name}.inp").is_file():
+            raise FileNotFoundError(
+                f"File {self.directory / f'{self.directory_safe_name}.inp'} does not exist. Use Species.write_input_files to write the necessary input files."
+            )
+
         if orca_path is None:
             orca_path = "orca"
         command = f"#!/usr/bin/bash\n\n{orca_path} {self.directory_safe_name}.inp > {self.directory_safe_name}.out\n\nrm *tmp*\nrm *gbw\nrm *densities*"
@@ -163,10 +179,9 @@ RunEnd"""
             file.write(command)
         set_file_executable("run.sh")
 
-        print(f"Running calculation of {self}")
+        print(f"Calculating energy of {self}")
         time_start = time()
         result = run("./run.sh", text=True, capture_output=True)
-
         if f"{orca_path}: command not found" in result.stderr:
             raise FileNotFoundError(
                 f"Command {orca_path} was not found. Please set path to ORCA executable correctly."
@@ -178,7 +193,6 @@ RunEnd"""
 
         if not compound_path.is_file():
             print("  Calculation failed.")
-            self.energy = None
             with open(self.directory / f"{self.directory_safe_name}.out") as file:
                 lines = file.readlines()
             for line in lines[::-1]:
@@ -210,6 +224,10 @@ RunEnd"""
         Returns:
             formation_enthalpy (float): enthalpy of formation in kcal/mol
         """
+        if self.energy is None:
+            raise AttributeError(
+                f"Calculating the enthalpy of formation of a Species requires the energy, but energy was None. Calculate the energy first using Species.calculate_energy"
+            )
         formation_enthalpy = self.energy
         for atom in self.constituents:
             formation_enthalpy += (
@@ -406,7 +424,9 @@ def get_possible_multiplicities(
     """
     verify_type(max_multiplicity, int, "max_multiplicity")
     if max_multiplicity < 1:
-        raise ValueError()
+        raise ValueError(
+            f"max_multiplicity should be at least 1, but was {max_multiplicity}"
+        )
 
     if max_multiplicity % 2 != 0:
         print(
@@ -436,7 +456,8 @@ def get_ground_state_species(species_list: list[Species], name: str) -> Species:
         name (str): name of species to filter for
 
     Returns:
-        minimum_spec (Species): Species instance with the minimum energy
+        minimum_spec (Species): Species instance with the minimum energy.
+            Its name is changed to the Species.split_name.
     """
     minimum_energy = sys.float_info.max
     minimum_spec = None
@@ -449,9 +470,58 @@ def get_ground_state_species(species_list: list[Species], name: str) -> Species:
             minimum_energy = spec.energy
             minimum_spec = spec
     if minimum_spec is None:
-        raise ValueError()
+        raise ValueError(
+            f"No suitable Species with name {name} with a valid energy was found in species_list"
+        )
     minimum_spec.name = minimum_spec.split_name
     return minimum_spec
+
+
+def calculate_dct_species(
+    species_dct: dict[str, tuple[str, int, int | None]],
+    max_multiplicity: int = 4,
+    orca_path: str | Path | None = None,
+    directory: str | Path | None = None,
+    method: Literal[available_methods] = "G2-MP2-SVP",
+    force: bool = False,
+    reduce_coordinate_precision: bool = True,
+) -> dict[str, Species]:
+    """Create Species instances from a dictionary, and calculate their ground state energies.
+
+    Args:
+        species_dct (dict[str, tuple[str, int, int | None]): dictionary of all species. Keys are names of species,
+            and values are a tuple of (smiles, charge, multiplicity). If multiplicity is None,
+            multiplicities up to max_multiplicity are attempted.
+        max_multiplicity (int): maximum multiplicity to try. Default: 4
+        orca_path (str | Path | None): path to ORCA executable. If None, simply execute "orca". Default: None
+        directory (str | Path | None): directory to calculate in. Default: None
+        method (Literal[available_methods]): method to use. Default: "G2-MP2-SVP"
+        force (bool): whether to do the calculation, even if it was attempted previously. Default: False
+        reduce_coordinate_precision (bool): whether to reduce the precision of numbers in the generated
+            xyz file. This can help with ORCA inferring incorrect symmetries. Default: True
+
+    Return:
+        ground_species (dict[str, Species]): ground state calculated Species
+    """
+    ground_states = {}
+    for spec, (smiles, charge, multiplicity) in species_dct.items():
+        if multiplicity is None:
+            possibilities = get_possible_multiplicities(
+                spec, smiles, charge=charge, max_multiplicity=max_multiplicity
+            )
+        else:
+            possibilities = [
+                Species(spec, smiles, charge=charge, multiplicity=multiplicity)
+            ]
+        for state in possibilities:
+            state.write_input_files(
+                directory=directory,
+                method=method,
+                reduce_coordinate_precision=reduce_coordinate_precision,
+            )
+            state.calculate_energy(orca_path=orca_path, force=force)
+        ground_states[spec] = get_ground_state_species(possibilities, spec)
+    return ground_states
 
 
 def get_reference_species(
@@ -475,13 +545,18 @@ def get_reference_species(
     Return:
         ground_species (dict[str, Species]): ground state reference atoms
     """
-    ground_species = {}
-    for atom in reference_atoms:
-        possibilities = get_possible_multiplicities(
-            atom, f"[{atom}]", charge=0, max_multiplicity=max_multiplicity
-        )
-        for state in possibilities:
-            state.write_input_files(directory=directory, method=method)
-            state.calculate_energy(orca_path=orca_path, force=force)
-        ground_species[atom] = get_ground_state_species(possibilities, atom)
-    return ground_species
+    species_dct = {}
+    for reference_atom in reference_atoms:
+        if reference_atom in atom_ground_state_multiplicities:
+            gs_multiplicity = atom_ground_state_multiplicities[reference_atom]
+        else:
+            gs_multiplicity = None
+        species_dct[reference_atom] = (f"[{reference_atom}]", 0, gs_multiplicity)
+    return calculate_dct_species(
+        species_dct,
+        max_multiplicity=max_multiplicity,
+        orca_path=orca_path,
+        directory=directory,
+        method=method,
+        force=force,
+    )
