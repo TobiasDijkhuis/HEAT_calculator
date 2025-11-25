@@ -121,6 +121,7 @@ class Species:
             file.write("\n".join(lines))
 
     def _get_orca_input(self, method: Literal[available_methods] = "G2-MP2-SVP") -> str:
+        # TODO: Move get_method call into here. Type hint is currently incorrect.
         return f"""# Automatically generated ORCA input at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 # Calculate high accuracy energies for the use of calculating thermodynamic values
 !compound[{method}]
@@ -144,6 +145,8 @@ RunEnd"""
             self.energy = -0.5 * HARTREE_TO_KCALPERMOL
             return
 
+        self._check_necessary_input_files()
+
         optimization_failed_path = self.directory / ".optimization_failed"
         if not force and optimization_failed_path.is_file():
             print(
@@ -158,17 +161,6 @@ RunEnd"""
                 read_final_energy_from_compound(compound_path) * HARTREE_TO_KCALPERMOL
             )
             return
-
-        # Is this even necessary? The code will already crash before because Species.directory is
-        # assigned in Species.write_input_files.
-        if not (self.directory / f"{self.directory_safe_name}.xyz").is_file():
-            raise FileNotFoundError(
-                f"File {self.directory / f'{self.directory_safe_name}.xyz'} does not exist. Use Species.write_input_files to write the necessary input files."
-            )
-        if not (self.directory / f"{self.directory_safe_name}.inp").is_file():
-            raise FileNotFoundError(
-                f"File {self.directory / f'{self.directory_safe_name}.inp'} does not exist. Use Species.write_input_files to write the necessary input files."
-            )
 
         if orca_path is None:
             orca_path = "orca"
@@ -209,6 +201,21 @@ RunEnd"""
         self.energy = (
             read_final_energy_from_compound(compound_path) * HARTREE_TO_KCALPERMOL
         )
+
+    def _check_necessary_input_files(self) -> None:
+        """Check that the input files are written in the correct directories"""
+        if not self.directory.is_dir():
+            raise NotADirectoryError(
+                f"{self.directory} is not a directory. This directory should be created during Species.write_input_files. Write input files before trying to calculate energy."
+            )
+        if not (self.directory / f"{self.directory_safe_name}.xyz").is_file():
+            raise FileNotFoundError(
+                f"File {self.directory / f'{self.directory_safe_name}.xyz'} does not exist."
+            )
+        if not (self.directory / f"{self.directory_safe_name}.inp").is_file():
+            raise FileNotFoundError(
+                f"File {self.directory / f'{self.directory_safe_name}.inp'} does not exist."
+            )
 
     def calculate_enthalpy_of_formation(
         self,
