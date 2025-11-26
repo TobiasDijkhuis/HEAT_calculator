@@ -20,7 +20,7 @@ from .utils import (CalculationResult, IncorrectGeneratedXYZ,
                     InvalidMultiplicityError, available_methods,
                     determine_reason_calculation_failed, get_method,
                     read_final_energy_from_compound, set_file_executable,
-                    verify_type, write_run_orca_file, determine_atoms_from_molecular_formula)
+                    verify_type, write_run_orca_file, determine_atoms_from_molecular_formula, format_formula_as_tex)
 
 
 @dataclass
@@ -38,15 +38,15 @@ class Species:
         verify_type(self.charge, int, "charge")
         # self._check_charge_from_name()
 
-        self.split_name = self.name.split("_")[0]
-        self.directory_safe_name = self.name.replace(")", "b").replace("(", "b")
-
         self.constituents = self._find_constituents()
+        self.num_electrons = self._calculate_num_electrons()
+        self._verify_multiplicity()
+
         self.elements = list(set(self.constituents))
         self.mass = self._calculate_mass()
-        self.num_electrons = self._calculate_num_electrons()
 
-        self._verify_multiplicity()
+        self.formula = self.name.split("_")[0]
+        self.directory_safe_name = self.name.replace(")", "b").replace("(", "b")
 
     def write_input_files(
         self,
@@ -109,7 +109,7 @@ class Species:
         num_atoms = int(lines[0].strip())
         if not self.num_atoms == num_atoms:
             raise IncorrectGeneratedXYZ(
-                f"Number of atoms in generated xyz file ({num_atoms}) does not match the number of atoms inferred from the molecular formula ({self.num_atoms}) of {self.split_name}. Check smiles ({self.smiles})"
+                f"Number of atoms in generated xyz file ({num_atoms}) does not match the number of atoms inferred from the molecular formula ({self.num_atoms}) of {self.formula}. Check smiles ({self.smiles})"
             )
         atoms = [line.split()[0] for line in lines[2:]]
         if not sorted(atoms) == sorted(self.constituents):
@@ -265,7 +265,7 @@ RunEnd"""
         Returns:
             atoms (list[str]): list of atoms in molecule
         """
-        return determine_atoms_from_molecular_formula(self.split_name)
+        return determine_atoms_from_molecular_formula(self.formula)
 
     # TODO: Remove this?
     # def _check_charge_from_name(self) -> None:
@@ -349,13 +349,13 @@ RunEnd"""
                     f"Number of electrons in {self.name} is odd ({self.num_electrons}), so the multiplicity should be even, but was {self.multiplicity}"
                 )
 
-    def format_name_as_tex(self) -> str:
-        """Format the name of the Species as a string in LaTeX
+    def format_formula_as_tex(self, use_ch: bool = True) -> str:
+        """Format the formula of the Species as a string in LaTeX
 
         Returns:
-            str: formatted name
+            str: formatted formula
         """
-        return f"\\ch{{{self.split_name}}}"
+        return format_formula_as_tex(formula, use_ch=use_ch)
 
     def format_smiles_as_tex(self) -> str:
         """Format the smiles of the Species as a string in LaTeX

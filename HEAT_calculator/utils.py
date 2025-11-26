@@ -249,3 +249,21 @@ def find_number_of_consecutive_digits(string: str, start: int) -> int:
     while start + num_digits < len(string) and string[start + num_digits].isdigit():
         num_digits += 1
     return num_digits
+
+
+def find_all_numbers(string: str) -> dict[str, str]:
+    return dict((m.start(), m.group()) for m in re.finditer(r"\d+", string))
+
+
+def format_formula_as_tex(formula: str, use_ch: bool = True) -> str:
+    numbers = find_all_numbers(formula)
+    to_skip = 0
+    for j, number in numbers.items():
+        formula = (
+            formula[: j + to_skip]
+            + r"$_{{{0}}}$".format(number)
+            + formula[j + to_skip + len(number) :]
+        )
+        to_skip += len(number) + 4
+    return formula
+
