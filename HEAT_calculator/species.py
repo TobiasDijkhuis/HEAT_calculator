@@ -75,7 +75,7 @@ class Species:
         with open(self.directory / f"{self.directory_safe_name}.inp", "w") as file:
             file.write(input)
 
-    def _generate_xyz(self) -> None:
+    def _generate_xyz(self, reduce_coordinate_precision: bool = False) -> None:
         """Generate a 3D structure from the smiles code.
         
         Args:
