@@ -99,8 +99,7 @@ class Species:
 
     def _verify_generated_xyz(self) -> None:
         """Verify that the generated xyz structure has the correct number of atoms
-        and correct number of each element
-        """
+        and correct number of each element"""
         with open(self.directory / f"{self.directory_safe_name}.xyz") as file:
             lines = file.readlines()
         num_atoms = int(lines[0].strip())
@@ -113,7 +112,7 @@ class Species:
             raise IncorrectGeneratedXYZ()
 
     def _reduce_coordinate_precision(self) -> None:
-        """This can help with ORCA detecting symmetries and keeping
+        """This can help with ORCA incorrectly detecting symmetries and keeping
         geometries more constrained during optimization"""
         with open(self.directory / f"{self.directory_safe_name}.xyz") as file:
             lines = file.readlines()
@@ -428,9 +427,9 @@ def get_possible_multiplicities(
     """Get Species instances with the possible multiplicities
 
     Args:
-        name (str):
-        smiles (str):
-        charge (int): ch
+        name (str): name of the species
+        smiles (str): smiles string of the species
+        charge (int): charge of the species
         max_multiplicity (int): maximum multiplicity to try. Default: 4
 
     Returns:
@@ -504,6 +503,17 @@ def get_ground_state_species(species_list: list[Species], name: str) -> Species:
 def _calculate_wrapper(
     species: Species, orca_path: str | Path | None = None, force: bool = False
 ) -> tuple[Species, CalculationResult, float]:
+    """A wrapper around Species.calculate_energy for the use in multiprocessing.pool.Pool()
+
+    Args:
+        species (Species): the Species instance to calculate
+        orca_path (str | Path | None): path to ORCA executable. If None, simply execute "orca". Default: None
+        force (bool): whether to do the calculation, even if it was attempted previously. Default: False
+
+    Returns:
+        tuple[Species, CalculationResult, float]: a tuple of the calculated Species instance, CalculationResult indicating
+            whether the calculation succeeded or not, and the duration of the calculation.
+    """
     time_start = time()
     result = species.calculate_energy(orca_path=orca_path, force=force)
     time_end = time()
@@ -520,6 +530,22 @@ def calculate_species(
     njobs: int = 1,
     disable_progress_bar: bool = False,
 ) -> dict[str, Species]:
+    """Calculate the energies of a list of species
+
+    Args:
+        species_lst (list[Species]): list of all species
+        orca_path (str | Path | None): path to ORCA executable. If None, simply execute "orca". Default: None
+        directory (str | Path | None): directory to calculate in. Default: None
+        method (Literal[available_methods]): method to use. Default: "G2-MP2-SVP"
+        force (bool): whether to do the calculation, even if it was attempted previously. Default: False
+        reduce_coordinate_precision (bool): whether to reduce the precision of numbers in the generated
+            xyz file. This can help with ORCA inferring incorrect symmetries. Default: True
+        njobs (int): Number of calculations to run at the same time. Default: 1
+        disable_progress_bar (bool): whether to disable the progress bar. Default: False
+
+    Return:
+        calculated_species (dict[str, Species]): dictionary of calculated species
+    """
     for spec in species_lst:
         spec.write_input_files(
             directory=directory,
@@ -573,6 +599,8 @@ def calculate_dct_species(
         force (bool): whether to do the calculation, even if it was attempted previously. Default: False
         reduce_coordinate_precision (bool): whether to reduce the precision of numbers in the generated
             xyz file. This can help with ORCA inferring incorrect symmetries. Default: True
+        njobs (int): Number of calculations to run at the same time. Default: 1
+        disable_progress_bar (bool): whether to disable the progress bar. Default: False
 
     Return:
         ground_species (dict[str, Species]): ground state calculated Species
@@ -629,6 +657,8 @@ def get_reference_species(
         directory (str | Path | None): directory to calculate in. Default: None
         method (Literal[available_methods]): method to use. Default: "G2-MP2-SVP"
         force (bool): whether to do the calculation, even if it was attempted previously. Default: False
+        njobs (int): Number of calculations to run at the same time. Default: 1
+        disable_progress_bar (bool): whether to disable the progress bar. Default: False
 
     Return:
         ground_species (dict[str, Species]): ground state reference atoms
