@@ -171,8 +171,10 @@ def write_run_orca_file(
 
 def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
     # Adapted from https://github.com/uclchem/UCLCHEM/blob/main/src/uclchem/makerates/species.py
+    verify_type(formula, str, 'formula')
+
     if formula[0].isdigit():
-        raise ValueError(f'First character of formula {formula} was a digit. Please put nrepeated parts in a bracket, e.g. (CH3)2')
+        raise ValueError(f'First character of formula {formula} was a digit. Please put repeated parts in a bracket with number after, e.g. (CH3)2')
 
     char_idx = 0
     atoms = []
@@ -228,6 +230,12 @@ def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
 
 def find_number_of_consecutive_digits(string: str, start: int) -> int:
     """Determine the number of consecutive digits in a string.
+    For example: 
+
+        >> find_number_of_consecutive_digits("Hello123", 0) -> 0,
+        >> find_number_of_consecutive_digits("Hello123", 5) -> 3,
+        >> find_number_of_consecutive_digits("Hello123", 6) -> 2,
+        >> find_number_of_consecutive_digits("He1llo23", 2) -> 1,
 
     Args:
         string (str): the string
@@ -237,7 +245,6 @@ def find_number_of_consecutive_digits(string: str, start: int) -> int:
         num_digits (int): the number of consecutive digits in the string
             starting from "start".
     """
-        
     num_digits = 0
     while start + num_digits < len(string) and string[start + num_digits].isdigit():
         num_digits += 1
