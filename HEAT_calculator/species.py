@@ -30,6 +30,10 @@ class Species:
     charge: int = 0
     multiplicity: int = 1
     energy: float | None = field(init=False, default=None)
+    # TODO: Maybe rename "name" to "formula", and allow "name" to be an optional
+    #   string for things like name="methanol", formula="CH3OH".
+    # TODO: Remove energy from here?
+    #   Then need to make different check in Species.calculate_enthalpy_of_formation
 
     def __post_init__(self) -> None:
         verify_type(self.name, str, "name")
@@ -189,9 +193,12 @@ RunEnd"""
             )
             return CalculationResult.SUCCESS
 
-        return determine_reason_calculation_failed(
+        reason = determine_reason_calculation_failed(
             self.directory / f"{self.directory_safe_name}.out"
         )
+        if reason == CalculationResult.FAILED_OPTIMIZATION:
+            optimization_failed_path.touch()
+        return reason
 
     def _check_necessary_input_files(self) -> None:
         """Check that the input files are written in the correct directories"""
@@ -432,21 +439,19 @@ def get_possible_multiplicities(
         )
     try:
         spec = Species(
-            name=f"{name}_{multiplicity_try}",
+            name=f"{name}_1",
             smiles=smiles,
             charge=charge,
             multiplicity=1,
         )
         multiplicity_should_be_even = False
-        if max_multiplicity == 2:
+        if max_multiplicity <= 2:
             return [spec]
     except InvalidMultiplicityError:
         multiplicity_should_be_even = True
 
     species = []
-    for state in range(
-        1 + int(multiplicity_should_be_even), max_multiplicity + 1, step=2
-    ):
+    for state in range(1 + int(multiplicity_should_be_even), max_multiplicity + 1, 2):
         species.append(
             Species(
                 name=f"{name}_{state}",
@@ -527,7 +532,7 @@ def calculate_species(
             species_lst,
         ):
             calculatedbar.set_description_str(
-                f"Calculation of {spec.name} done, took {duration:.2f} seconds. Result: {result}"
+                f"Calculation of {spec.name} done, took {duration:.2f} seconds. Result: {result.name}"
             )
             pbar.update()
             pbar.refresh()

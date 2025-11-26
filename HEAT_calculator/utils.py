@@ -2,7 +2,7 @@ import os
 import re
 import stat
 from datetime import datetime
-from enum import Enum
+from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Literal
 
@@ -18,9 +18,9 @@ class IncorrectGeneratedXYZ(Exception):
 class CalculationResult(Enum):
     """A useful way to easily determine whether the calculation of a species succeeded or not."""
 
-    SUCCESS = 1
-    FAILED_OPTIMIZATION = 2
-    FAILED_OTHER = 3
+    SUCCESS = auto()
+    FAILED_OPTIMIZATION = auto()
+    FAILED_OTHER = auto()
 
 
 def read_final_energy_from_compound(filepath: str | Path) -> float:
@@ -55,7 +55,6 @@ def determine_reason_calculation_failed(filepath: str | Path) -> CalculationResu
             "The optimization has not yet converged - more geometry cycles are needed"
             in line
         ):
-            optimization_failed_path.touch()
             return CalculationResult.FAILED_OPTIMIZATION
     return CalculationResult.FAILED_OTHER
 
