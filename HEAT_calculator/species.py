@@ -4,18 +4,22 @@ import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
+from multiprocessing.pool import Pool
 from pathlib import Path
 from subprocess import run
 from time import time
 from typing import Literal
 
-from data import (HARTREE_TO_KCALPERMOL, atom_ground_state_multiplicities,
-                  atomic_masses, atomic_numbers, element_list,
-                  experimental_formation_0K)
-from utils import (IncorrectGeneratedXYZ, InvalidMultiplicityError,
-                   available_methods, get_method,
-                   read_final_energy_from_compound, set_file_executable,
-                   verify_type)
+from tqdm import tqdm
+
+from .data import (HARTREE_TO_KCALPERMOL, atom_ground_state_multiplicities,
+                   atomic_masses, atomic_numbers, element_list,
+                   experimental_formation_0K)
+from .utils import (CalculationResult, IncorrectGeneratedXYZ,
+                    InvalidMultiplicityError, available_methods, get_method,
+                    read_final_energy_from_compound, set_file_executable,
+                    verify_type)
 
 
 @dataclass
@@ -66,7 +70,6 @@ class Species:
         if reduce_coordinate_precision:
             self._reduce_coordinate_precision()
 
-        method = get_method(self.is_atomic(), method=method)
         input = self._get_orca_input(method=method)
         with open(self.directory / f"{self.directory_safe_name}.inp", "w") as file:
             file.write(input)
@@ -122,6 +125,7 @@ class Species:
 
     def _get_orca_input(self, method: Literal[available_methods] = "G2-MP2-SVP") -> str:
         # TODO: Move get_method call into here. Type hint is currently incorrect.
+        method = get_method(self.is_atomic(), method=method)
         return f"""# Automatically generated ORCA input at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 # Calculate high accuracy energies for the use of calculating thermodynamic values
 !compound[{method}]
@@ -133,7 +137,7 @@ RunEnd"""
 
     def calculate_energy(
         self, orca_path: str | Path | None = None, force: bool = False
-    ) -> None:
+    ) -> CalculationResult:
         """Calculate the energy of the Species.
 
         Args:
@@ -143,16 +147,13 @@ RunEnd"""
         if self.smiles == "[H]" and self.charge == 0 and self.multiplicity == 2:
             # The energy of the hydrogen atom is -0.5 Hartree by definition
             self.energy = -0.5 * HARTREE_TO_KCALPERMOL
-            return
+            return CalculationResult.SUCCESS
 
         self._check_necessary_input_files()
 
         optimization_failed_path = self.directory / ".optimization_failed"
         if not force and optimization_failed_path.is_file():
-            print(
-                f"Tried to run calculation for {self.name} previously, but optimization failed."
-            )
-            return
+            return CalculationResult.FAILED_OPTIMIZATION
         compound_path = (
             self.directory / f"{self.directory_safe_name}_compound_detailed.txt"
         )
@@ -160,7 +161,7 @@ RunEnd"""
             self.energy = (
                 read_final_energy_from_compound(compound_path) * HARTREE_TO_KCALPERMOL
             )
-            return
+            return CalculationResult.SUCCESS
 
         if orca_path is None:
             orca_path = "orca"
@@ -171,7 +172,6 @@ RunEnd"""
             file.write(command)
         set_file_executable("run.sh")
 
-        print(f"Calculating energy of {self}")
         time_start = time()
         result = run("./run.sh", text=True, capture_output=True)
         if f"{orca_path}: command not found" in result.stderr:
@@ -180,27 +180,24 @@ RunEnd"""
             )
 
         time_end = time()
-        print(f"  Took {time_end - time_start:.2f} seconds")
         os.chdir(init_dir)
 
-        if not compound_path.is_file():
-            print("  Calculation failed.")
-            with open(self.directory / f"{self.directory_safe_name}.out") as file:
-                lines = file.readlines()
-            for line in lines[::-1]:
-                if (
-                    "The optimization has not yet converged - more geometry cycles are needed"
-                    in line
-                ):
-                    print(
-                        "  Optimization required more steps. Making file to indicate this for future runs"
-                    )
-                    optimization_failed_path.touch()
-                    break
-            return
-        self.energy = (
-            read_final_energy_from_compound(compound_path) * HARTREE_TO_KCALPERMOL
-        )
+        if compound_path.is_file():
+            self.energy = (
+                read_final_energy_from_compound(compound_path) * HARTREE_TO_KCALPERMOL
+            )
+            return CalculationResult.SUCCESS
+
+        with open(self.directory / f"{self.directory_safe_name}.out") as file:
+            lines = file.readlines()
+        for line in lines[::-1]:
+            if (
+                "The optimization has not yet converged - more geometry cycles are needed"
+                in line
+            ):
+                optimization_failed_path.touch()
+                return CalculationResult.FAILED_OPTIMIZATION
+        return CalculationResult.FAILED_OTHER
 
     def _check_necessary_input_files(self) -> None:
         """Check that the input files are written in the correct directories"""
@@ -484,6 +481,54 @@ def get_ground_state_species(species_list: list[Species], name: str) -> Species:
     return minimum_spec
 
 
+def _calculate_wrapper(
+    species: Species, orca_path: str | Path | None = None, force: bool = False
+) -> tuple[Species, CalculationResult, float]:
+    time_start = time()
+    result = species.calculate_energy(orca_path=orca_path, force=force)
+    time_end = time()
+    return species, result, time_end - time_start
+
+
+def calculate_species(
+    species_lst: list[Species],
+    orca_path: str | Path | None = None,
+    directory: str | Path | None = None,
+    method: Literal[available_methods] = "G2-MP2-SVP",
+    force: bool = False,
+    reduce_coordinate_precision: bool = True,
+    njobs: int = 1,
+    disable_progress_bar: bool = False,
+) -> dict[str, Species]:
+    for spec in species_lst:
+        spec.write_input_files(
+            directory=directory,
+            method=method,
+            reduce_coordinate_precision=reduce_coordinate_precision,
+        )
+
+    calculated_species = {}
+    with (
+        Pool(njobs) as pool,
+        tqdm(total=len(species_lst), disable=disable_progress_bar, position=1) as pbar,
+        tqdm(
+            disable=disable_progress_bar, position=0, bar_format="{desc}"
+        ) as calculatedbar,
+    ):
+        calculatedbar.set_description_str("Starting calculations")
+        for spec, result, duration in pool.imap_unordered(
+            partial(_calculate_wrapper, orca_path=orca_path, force=force),
+            species_lst,
+        ):
+            calculatedbar.set_description_str(
+                f"Calculation of {spec.name} done, took {duration:.2f} seconds. Result: {result}"
+            )
+            pbar.update()
+            pbar.refresh()
+            calculated_species[spec.name] = spec
+    return calculated_species
+
+
 def calculate_dct_species(
     species_dct: dict[str, tuple[str, int, int | None]],
     max_multiplicity: int = 4,
@@ -492,6 +537,8 @@ def calculate_dct_species(
     method: Literal[available_methods] = "G2-MP2-SVP",
     force: bool = False,
     reduce_coordinate_precision: bool = True,
+    njobs: int = 1,
+    disable_progress_bar: bool = False,
 ) -> dict[str, Species]:
     """Create Species instances from a dictionary, and calculate their ground state energies.
 
@@ -510,7 +557,9 @@ def calculate_dct_species(
     Return:
         ground_species (dict[str, Species]): ground state calculated Species
     """
-    ground_states = {}
+    # TODO: Maybe move this first bit of instance creation
+    # into its own function, "create_species_instances_from_dct"?
+    all_species_lst = []
     for spec, (smiles, charge, multiplicity) in species_dct.items():
         if multiplicity is None:
             possibilities = get_possible_multiplicities(
@@ -520,14 +569,24 @@ def calculate_dct_species(
             possibilities = [
                 Species(spec, smiles, charge=charge, multiplicity=multiplicity)
             ]
-        for state in possibilities:
-            state.write_input_files(
-                directory=directory,
-                method=method,
-                reduce_coordinate_precision=reduce_coordinate_precision,
-            )
-            state.calculate_energy(orca_path=orca_path, force=force)
-        ground_states[spec] = get_ground_state_species(possibilities, spec)
+        all_species_lst.extend(possibilities)
+
+    calculated_species = list(
+        calculate_species(
+            all_species_lst,
+            orca_path=orca_path,
+            directory=directory,
+            method=method,
+            force=force,
+            reduce_coordinate_precision=reduce_coordinate_precision,
+            njobs=njobs,
+            disable_progress_bar=disable_progress_bar,
+        ).values()
+    )
+
+    ground_states = {}
+    for spec in species_dct:
+        ground_states[spec] = get_ground_state_species(calculated_species, spec)
     return ground_states
 
 
@@ -538,6 +597,8 @@ def get_reference_species(
     directory: str | Path | None = None,
     method: Literal[available_methods] = "G2-MP2-SVP",
     force: bool = False,
+    njobs: int = 1,
+    disable_progress_bar: bool = False,
 ) -> dict[str, Species]:
     """Get the reference species in the electronic ground states
 
@@ -566,4 +627,6 @@ def get_reference_species(
         directory=directory,
         method=method,
         force=force,
+        njobs=njobs,
+        disable_progress_bar=disable_progress_bar,
     )

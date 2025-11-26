@@ -1,11 +1,16 @@
+from time import time
+
 import matplotlib.pyplot as plt
 
-from species import (Species, calculate_dct_species, get_ground_state_species,
-                     get_possible_multiplicities, get_reference_species)
+from HEAT_calculator.species import (Species, calculate_dct_species,
+                                     get_ground_state_species,
+                                     get_possible_multiplicities,
+                                     get_reference_species)
 
 method = "G2-MP2-SVP"
 directory = "compare_ATcT_reduced_precision"
-force = False
+force = True
+njobs = 2
 
 colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
@@ -14,6 +19,7 @@ calculated_atoms = get_reference_species(
     method=method,
     directory=directory,
     force=force,
+    njobs=njobs,
 )
 
 # Formation enthalpies at 0 K taken from ATcT ver. 1.220,
@@ -65,12 +71,18 @@ smiles_dct = {
 
 assert len(smiles_dct) == len(species_atct), "Not same length."
 
+time_start = time()
 ground_states = calculate_dct_species(
     smiles_dct,
     directory=directory,
     method=method,
     reduce_coordinate_precision=True,
     force=force,
+    njobs=njobs,
+)
+time_end = time()
+print(
+    f"Using {njobs} jobs, calculating the species took {time_end - time_start:.2f} seconds"
 )
 
 plt.figure()

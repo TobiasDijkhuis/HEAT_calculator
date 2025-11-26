@@ -2,6 +2,7 @@ import os
 import re
 import stat
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
@@ -12,6 +13,12 @@ class InvalidMultiplicityError(Exception):
 
 class IncorrectGeneratedXYZ(Exception):
     """Error to indicate that a generated XYZ file does not match the desired molecular formula"""
+
+
+class CalculationResult(Enum):
+    SUCCESS = 1
+    FAILED_OPTIMIZATION = 2
+    FAILED_OTHER = 3
 
 
 def read_final_energy_from_compound(filepath: str | Path) -> float:
@@ -46,7 +53,7 @@ def set_file_executable(filepath: str | Path) -> None:
     os.chmod(filepath, mode=stat.S_IRWXG | stat.S_IRWXU | stat.S_IREAD)
 
 
-def verify_type(value: Any, desired_type: Any, name: str) -> None:
+def verify_type(value: Any, desired_type: type, name: str) -> None:
     """Verify the type of a parameter is as desired
 
     Args:
