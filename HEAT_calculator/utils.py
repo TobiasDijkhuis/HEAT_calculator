@@ -18,9 +18,17 @@ class IncorrectGeneratedXYZ(Exception):
 class CalculationResult(Enum):
     """A useful way to easily determine whether the calculation of a species succeeded or not."""
 
-    SUCCESS = auto()
+    SUCCESS_CALCULATED = auto()
+    """Calculation succeeded"""
+
+    SUCCESS_READ = auto()
+    """Energy was read from a previous time the Species was calculated"""
+
     FAILED_OPTIMIZATION = auto()
+    """Calculation failed because the geometry optimization required too many steps"""
+
     FAILED_OTHER = auto()
+    """Calculation failed for a reason that is not explicitly implemented"""
 
 
 def read_final_energy_from_compound(filepath: str | Path) -> float:

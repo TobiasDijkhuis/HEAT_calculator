@@ -3,13 +3,11 @@ from time import time
 import matplotlib.pyplot as plt
 
 from HEAT_calculator.species import (Species, calculate_dct_species,
-                                     get_ground_state_species,
-                                     get_possible_multiplicities,
                                      get_reference_species)
 
 method = "G2-MP2-SVP"
 directory = "compare_ATcT_reduced_precision"
-force = True
+force = False
 njobs = 2
 
 colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]

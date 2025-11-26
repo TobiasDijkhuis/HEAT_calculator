@@ -151,7 +151,7 @@ RunEnd"""
         if self.smiles == "[H]" and self.charge == 0 and self.multiplicity == 2:
             # The energy of the hydrogen atom is -0.5 Hartree by definition
             self.energy = -0.5 * HARTREE_TO_KCALPERMOL
-            return CalculationResult.SUCCESS
+            return CalculationResult.SUCCESS_CALCULATED
 
         self._check_necessary_input_files()
 
@@ -166,7 +166,7 @@ RunEnd"""
             self.energy = (
                 read_final_energy_from_compound(compound_path) * HARTREE_TO_KCALPERMOL
             )
-            return CalculationResult.SUCCESS
+            return CalculationResult.SUCCESS_READ
 
         if orca_path is None:
             orca_path = "orca"
@@ -199,7 +199,7 @@ RunEnd"""
             self.energy = (
                 read_final_energy_from_compound(compound_path) * HARTREE_TO_KCALPERMOL
             )
-            return CalculationResult.SUCCESS
+            return CalculationResult.SUCCESS_CALCULATED
 
         reason = determine_reason_calculation_failed(
             self.directory / f"{self.directory_safe_name}.out"
