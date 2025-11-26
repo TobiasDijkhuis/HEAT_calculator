@@ -6,6 +6,7 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Literal
 
+from .data import element_list
 
 class InvalidMultiplicityError(Exception):
     """Error to indicate that the given multiplicity is impossible."""
@@ -166,3 +167,85 @@ def write_run_orca_file(
     with open(run_path, "w") as file:
         file.write(command)
     set_file_executable(run_path)
+
+
+def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
+    # Adapted from https://github.com/uclchem/UCLCHEM/blob/main/src/uclchem/makerates/species.py
+    if formula[0].isdigit():
+        raise ValueError(f'First character of formula {formula} was a digit. Please put repeated parts in a bracket, e.g. (CH3)2')
+
+    char_idx = 0
+    atoms = []
+    currently_in_bracket = False
+    # loop over characters in species name to work out what it is made of
+    while char_idx < len(formula):
+        # if character isn't a + or - then check it, otherwise move on
+        if formula[char_idx] not in ["+", "-", "(", ")"]:
+            if char_idx + 1 < len(formula):
+                # if next two characters are (eg) 'MG' then atom is Mg not M and G
+                if formula[char_idx : char_idx + 2] in element_list:
+                    j = char_idx + 2
+                # otherwise work out which element it is
+                elif formula[char_idx] in element_list:
+                    j = char_idx + 1
+
+            # if there aren't two characters left just try next one
+            elif formula[char_idx] in element_list:
+                j = char_idx + 1
+            # if we've found a new element check for numbers otherwise print error
+            if j <= char_idx:
+                raise ValueError(f"formula {formula} contains element(s) not in element list")
+
+            if currently_in_bracket:
+                bracket_content.append(formula[char_idx:j])
+            else:
+                atoms.append(formula[char_idx:j])  # add element to list
+ 
+            num_digits = find_number_of_consecutive_digits(formula, j)
+            if num_digits > 0:
+                # minus 1, because we already added this element 
+                # to the list of atoms in the previous i
+                repeat = int(formula[j: j+num_digits]) - 1
+                for _ in range(repeat):
+                    if currently_in_bracket:
+                        bracket_content.append(formula[char_idx:j])
+                    else:
+                        atoms.append(formula[char_idx:j])
+            char_idx = j + num_digits
+        else:
+            # if symbol is start of a bracketed part of molecule, keep track
+            if formula[char_idx] == "(":
+                currently_in_bracket = True
+                bracket_content = []
+                char_idx += 1
+            # if it's the end then add bracket contents to list
+            elif formula[char_idx] == ")":
+                currently_in_bracket = False
+                num_digits = find_number_of_consecutive_digits(formula, char_idx+1)
+                if num_digits == 0:
+                    repeat = 1
+                else:
+                    repeat = int(formula[char_idx + 1 : char_idx + 1 + num_digits])
+                for _ in range(repeat):
+                    atoms.extend(bracket_content)
+                char_idx += num_digits + 1
+            else:
+                char_idx += 1
+    return atoms
+
+def find_number_of_consecutive_digits(string: str, start: int) -> int:
+    """Determine the number of consecutive digits in a string.
+
+    Args:
+        string (str): the string
+        start (int): the starting index
+
+    Returns:
+        num_digits (int): the number of consecutive digits in the string
+            starting from "start".
+    """
+        
+    num_digits = 0
+    while start + num_digits < len(string) and string[start + num_digits].isdigit():
+        num_digits += 1
+    return num_digits

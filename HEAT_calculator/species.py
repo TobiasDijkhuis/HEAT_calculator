@@ -15,13 +15,12 @@ from typing import Literal
 from tqdm import tqdm
 
 from .data import (HARTREE_TO_KCALPERMOL, atom_ground_state_multiplicities,
-                   atomic_masses, atomic_numbers, element_list,
-                   experimental_formation_0K)
+                   atomic_masses, atomic_numbers, experimental_formation_0K)
 from .utils import (CalculationResult, IncorrectGeneratedXYZ,
                     InvalidMultiplicityError, available_methods,
                     determine_reason_calculation_failed, get_method,
                     read_final_energy_from_compound, set_file_executable,
-                    verify_type, write_run_orca_file)
+                    verify_type, write_run_orca_file, determine_atoms_from_molecular_formula)
 
 
 @dataclass
@@ -30,17 +29,14 @@ class Species:
     smiles: str
     charge: int = 0
     multiplicity: int = 1
-    energy: float | None = field(init=False, default=None)
     # TODO: Maybe rename "name" to "formula", and allow "name" to be an optional
     #   string for things like name="methanol", formula="CH3OH".
-    # TODO: Remove energy from here?
-    #   Then need to make different check in Species.calculate_enthalpy_of_formation
 
     def __post_init__(self) -> None:
         verify_type(self.name, str, "name")
         verify_type(self.smiles, str, "smiles")
         verify_type(self.charge, int, "charge")
-        self._check_charge_from_name()
+        # self._check_charge_from_name()
 
         self.split_name = self.name.split("_")[0]
         self.directory_safe_name = self.name.replace(")", "b").replace("(", "b")
@@ -64,7 +60,7 @@ class Species:
             directory (str | Path | None): directory to calculate in. Default: None
             method (Literal[available_methods]): method to use. Default: "G2-MP2-SVP"
             reduce_coordinate_precision (bool): whether to reduce the precision of numbers in the generated
-                xyz file. This can help with ORCA inferring incorrect symmetries.
+                xyz file. This can help with ORCA inferring incorrect symmetries. Default: True
         """
         if directory is not None:
             self.directory = Path(directory) / self.directory_safe_name
@@ -73,16 +69,19 @@ class Species:
         if not self.directory.is_dir():
             self.directory.mkdir(parents=True)
 
-        self._generate_xyz()
-        if reduce_coordinate_precision:
-            self._reduce_coordinate_precision()
+        self._generate_xyz(reduce_coordinate_precision=reduce_coordinate_precision)
 
         input = self._get_orca_input(method=method)
         with open(self.directory / f"{self.directory_safe_name}.inp", "w") as file:
             file.write(input)
 
     def _generate_xyz(self) -> None:
-        """Generate a 3D structure from the smiles code."""
+        """Generate a 3D structure from the smiles code.
+        
+        Args:
+            reduce_coordinate_precision (bool): whether to reduce the precision of numbers in the generated
+                xyz file. This can help with ORCA inferring incorrect symmetries. Default: True
+        """
         with open(self.directory / f"{self.directory_safe_name}.smi", "w") as file:
             file.write(self.smiles)
         command = f"obabel --title {self.name} -ismi {self.directory / self.directory_safe_name}.smi -oxyz -O {self.directory / self.directory_safe_name}.xyz -h --gen3d --best"
@@ -99,6 +98,9 @@ class Species:
 
         self._verify_generated_xyz()
 
+        if reduce_coordinate_precision:
+            self._reduce_coordinate_precision()
+
     def _verify_generated_xyz(self) -> None:
         """Verify that the generated xyz structure has the correct number of atoms
         and correct number of each element"""
@@ -114,7 +116,7 @@ class Species:
             raise IncorrectGeneratedXYZ()
 
     def _reduce_coordinate_precision(self) -> None:
-        """This can help with ORCA incorrectly detecting symmetries and keeping
+        """This can help prevent ORCA incorrectly detecting symmetries and keeping
         geometries more constrained during optimization"""
         with open(self.directory / f"{self.directory_safe_name}.xyz") as file:
             lines = file.readlines()
@@ -130,7 +132,6 @@ class Species:
             file.write("\n".join(lines))
 
     def _get_orca_input(self, method: Literal[available_methods] = "G2-MP2-SVP") -> str:
-        # TODO: Move get_method call into here. Type hint is currently incorrect.
         method = get_method(self.is_atomic(), method=method)
         return f"""# Automatically generated ORCA input at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 # Calculate high accuracy energies for the use of calculating thermodynamic values
@@ -149,6 +150,9 @@ RunEnd"""
         Args:
             orca_path (str | Path | None): path to ORCA executable. If None, simply execute "orca". Default: None
             force (bool): whether to do the calculation, even if it was attempted previously. Default: False
+
+        Returns:
+            CalculationResult: the result of the calculation. Indicates whether the calculation succeeded or not.
         """
         if self.smiles == "[H]" and self.charge == 0 and self.multiplicity == 2:
             # The energy of the hydrogen atom is -0.5 Hartree by definition
@@ -177,11 +181,14 @@ RunEnd"""
             f"{self.directory_safe_name}.inp",
             orca_path=orca_path,
         )
-
+        
         try:
             from slurm_manager.job import SlurmJob
 
             job = SlurmJob.start_from_command("sbatch run.sh", directory=self.directory)
+            # This is very inefficient. For every Species, a new slurm job will be started
+            # but also a process by Pool() will be started, so two processes, and the one
+            # spawned by the pool will just be waiting. How to do this better?
             try:
                 job.wait()
             except KeyboardInterrupt as e:
@@ -239,9 +246,9 @@ RunEnd"""
         Returns:
             formation_enthalpy (float): enthalpy of formation in kcal/mol
         """
-        if self.energy is None:
+        if not hasattr(self, 'energy'):
             raise AttributeError(
-                f"Calculating the enthalpy of formation of a Species requires the energy, but energy was None. Calculate the energy first using Species.calculate_energy"
+                f"Calculating the enthalpy of formation of a Species requires the energy. Calculate the energy first using Species.calculate_energy"
             )
         formation_enthalpy = self.energy
         for atom in self.constituents:
@@ -258,89 +265,25 @@ RunEnd"""
         Returns:
             atoms (list[str]): list of atoms in molecule
         """
-        # Adapted from https://github.com/uclchem/UCLCHEM/blob/main/src/uclchem/makerates/species.py
-        i = 0
-        atoms = []
-        currently_in_bracket = False
-        # loop over characters in species name to work out what it is made of
-        while i < len(self.split_name):
-            # if character isn't a + or - then check it, otherwise move on
-            if self.split_name[i] not in ["+", "-", "(", ")"]:
-                if i + 1 < len(self.split_name):
-                    # if next two characters are (eg) 'MG' then atom is Mg not M and G
-                    if self.split_name[i : i + 3] in element_list:
-                        j = i + 3
-                    elif self.split_name[i : i + 2] in element_list:
-                        j = i + 2
-                    # otherwise work out which element it is
-                    elif self.split_name[i] in element_list:
-                        j = i + 1
+        return determine_atoms_from_molecular_formula(self.split_name)
 
-                # if there aren't two characters left just try next one
-                elif self.split_name[i] in element_list:
-                    j = i + 1
-                # if we've found a new element check for numbers otherwise print error
-                if j > i:
-                    if currently_in_bracket:
-                        bracket_content.append(self.split_name[i:j])
-                    else:
-                        atoms.append(self.split_name[i:j])  # add element to list
-                    if j < len(self.split_name):
-                        if self.split_name[j].isdigit():
-                            if int(self.split_name[j]) > 1:
-                                for k in range(1, int(self.split_name[j])):
-                                    if currently_in_bracket:
-                                        bracket_content.append(self.split_name[i:j])
-                                    else:
-                                        atoms.append(self.split_name[i:j])
-                                i = j + 1
-                            else:
-                                i = j
-                        else:
-                            i = j
-                    else:
-                        i = j
-                else:
-                    raise ValueError(
-                        f"Contains elements not in element list: {self.split_name}"
-                    )
-            else:
-                # if symbol is start of a bracketed part of molecule, keep track
-                if self.split_name[i] == "(":
-                    currently_in_bracket = True
-                    bracket_content = []
-                    i += 1
-                # if it's the end then add bracket contents to list
-                elif self.split_name[i] == ")":
-                    currently_in_bracket = False
-                    if self.split_name[i + 1].isdigit():
-                        for k in range(0, int(self.split_name[i + 1])):
-                            atoms.extend(bracket_content)
-                        i += 2
-                    else:
-                        atoms.extend(bracket_content)
-                        i += 1
-                # otherwise move on
-                else:
-                    i += 1
-        return atoms
-
-    def _check_charge_from_name(self) -> None:
-        """Checks the charge from the name, and corrects the given charge"""
-        if "-" in self.name:
-            if self.charge != -1:
-                print(f"Warning: Assuming the ion {self.name} is singly charged")
-                print(
-                    f"Found '-' in name of species {self}, but charge was {self.charge}. Setting charge to -1"
-                )
-                self.charge = -1
-        elif "+" in self.name:
-            if self.charge != 1:
-                print(f"Warning: Assuming the ion {self.name} is singly charged")
-                print(
-                    f"Found '+' in name of species {self}, but charge was {self.charge}. Setting charge to 1"
-                )
-                self.charge = 1
+    # TODO: Remove this?
+    # def _check_charge_from_name(self) -> None:
+    #     """Checks the charge from the name, and corrects the given charge"""
+    #     if "-" in self.name:
+    #         if self.charge != -1:
+    #             print(f"Warning: Assuming the ion {self.name} is singly charged")
+    #             print(
+    #                 f"Found '-' in name of species {self}, but charge was {self.charge}. Setting charge to -1"
+    #             )
+    #             self.charge = -1
+    #     elif "+" in self.name:
+    #         if self.charge != 1:
+    #             print(f"Warning: Assuming the ion {self.name} is singly charged")
+    #             print(
+    #                 f"Found '+' in name of species {self}, but charge was {self.charge}. Setting charge to 1"
+    #             )
+    #             self.charge = 1
 
     @property
     def num_atoms(self) -> int:
@@ -460,17 +403,7 @@ def get_possible_multiplicities(
     except InvalidMultiplicityError:
         multiplicity_should_be_even = True
 
-    species = []
-    for state in range(1 + int(multiplicity_should_be_even), max_multiplicity + 1, 2):
-        species.append(
-            Species(
-                name=f"{name}_{state}",
-                smiles=smiles,
-                charge=charge,
-                multiplicity=state,
-            )
-        )
-    return species
+    return [Species(name=f"{name}_{state}", smiles=smiles, charge=charge, multiplicity=state) for state in range(1+int(multiplicity_should_be_even), max_multiplicity+1,2)]
 
 
 def get_ground_state_species(species_list: list[Species], name: str) -> Species:
@@ -518,8 +451,7 @@ def _calculate_wrapper(
     """
     time_start = time()
     result = species.calculate_energy(orca_path=orca_path, force=force)
-    time_end = time()
-    return species, result, time_end - time_start
+    return species, result, time() - time_start
 
 
 def calculate_species(
@@ -605,7 +537,7 @@ def calculate_dct_species(
         disable_progress_bar (bool): whether to disable the progress bar. Default: False
 
     Return:
-        ground_species (dict[str, Species]): ground state calculated Species
+        dict[str, Species]: ground state calculated Species
     """
     # TODO: Maybe move this first bit of instance creation
     # into its own function, "create_species_instances_from_dct"?
@@ -634,10 +566,7 @@ def calculate_dct_species(
         ).values()
     )
 
-    ground_states = {}
-    for spec in species_dct:
-        ground_states[spec] = get_ground_state_species(calculated_species, spec)
-    return ground_states
+    return {spec: get_ground_state_species(calculate_species, spec) for spec in species_dct}
 
 
 def calculate_reference_species(
