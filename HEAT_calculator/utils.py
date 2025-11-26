@@ -16,6 +16,8 @@ class IncorrectGeneratedXYZ(Exception):
 
 
 class CalculationResult(Enum):
+    """A useful way to easily determine whether the calculation of a species succeeded or not."""
+
     SUCCESS = 1
     FAILED_OPTIMIZATION = 2
     FAILED_OTHER = 3
@@ -44,6 +46,20 @@ def read_final_energy_from_compound(filepath: str | Path) -> float:
             return energy
 
 
+def determine_reason_calculation_failed(filepath: str | Path) -> CalculationResult:
+    """An easy way to determine why a calculation failed."""
+    with open(filepath) as file:
+        lines = file.readlines()
+    for line in lines[::-1]:
+        if (
+            "The optimization has not yet converged - more geometry cycles are needed"
+            in line
+        ):
+            optimization_failed_path.touch()
+            return CalculationResult.FAILED_OPTIMIZATION
+    return CalculationResult.FAILED_OTHER
+
+
 def set_file_executable(filepath: str | Path) -> None:
     """Set a file to be executable from subprocess.run
 
@@ -67,7 +83,8 @@ def verify_type(value: Any, desired_type: type, name: str) -> None:
         )
 
 
-# See https://www.faccts.de/docs/orca/6.0/manual/contents/detailed/compound.html#list-of-known-simple-input-commands
+""" List of available methods in ORCA to calculate high accuracy energies
+See https://www.faccts.de/docs/orca/6.0/manual/contents/detailed/compound.html#list-of-known-simple-input-commands"""
 available_methods = [
     "G2-MP2",
     "G2-MP2-SV",

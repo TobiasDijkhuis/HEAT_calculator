@@ -17,7 +17,8 @@ from .data import (HARTREE_TO_KCALPERMOL, atom_ground_state_multiplicities,
                    atomic_masses, atomic_numbers, element_list,
                    experimental_formation_0K)
 from .utils import (CalculationResult, IncorrectGeneratedXYZ,
-                    InvalidMultiplicityError, available_methods, get_method,
+                    InvalidMultiplicityError, available_methods,
+                    determine_reason_calculation_failed, get_method,
                     read_final_energy_from_compound, set_file_executable,
                     verify_type)
 
@@ -188,16 +189,9 @@ RunEnd"""
             )
             return CalculationResult.SUCCESS
 
-        with open(self.directory / f"{self.directory_safe_name}.out") as file:
-            lines = file.readlines()
-        for line in lines[::-1]:
-            if (
-                "The optimization has not yet converged - more geometry cycles are needed"
-                in line
-            ):
-                optimization_failed_path.touch()
-                return CalculationResult.FAILED_OPTIMIZATION
-        return CalculationResult.FAILED_OTHER
+        return determine_reason_calculation_failed(
+            self.directory / f"{self.directory_safe_name}.out"
+        )
 
     def _check_necessary_input_files(self) -> None:
         """Check that the input files are written in the correct directories"""
@@ -432,23 +426,35 @@ def get_possible_multiplicities(
             f"max_multiplicity should be at least 1, but was {max_multiplicity}"
         )
 
-    if max_multiplicity % 2 != 0:
+    if max_multiplicity % 2 == 1:
         print(
-            "Warning: max_multiplicity is odd, which means that more states will be checked for systems with an even number of electrons than systems with an odd amount of electrons"
+            f"Warning: max_multiplicity is odd ({max_multiplicity}), which means that more states will be checked for systems with an even number of electrons than systems with an odd amount of electrons"
         )
+    try:
+        spec = Species(
+            name=f"{name}_{multiplicity_try}",
+            smiles=smiles,
+            charge=charge,
+            multiplicity=1,
+        )
+        multiplicity_should_be_even = False
+        if max_multiplicity == 2:
+            return [spec]
+    except InvalidMultiplicityError:
+        multiplicity_should_be_even = True
+
     species = []
-    for multiplicity_try in range(1, max_multiplicity + 1):
-        try:
-            spec = Species(
-                name=f"{name}_{multiplicity_try}",
+    for state in range(
+        1 + int(multiplicity_should_be_even), max_multiplicity + 1, step=2
+    ):
+        species.append(
+            Species(
+                name=f"{name}_{state}",
                 smiles=smiles,
                 charge=charge,
-                multiplicity=multiplicity_try,
+                multiplicity=state,
             )
-        except InvalidMultiplicityError:
-            # This combination of number of electrons and multiplicity is invalid
-            continue
-        species.append(spec)
+        )
     return species
 
 
