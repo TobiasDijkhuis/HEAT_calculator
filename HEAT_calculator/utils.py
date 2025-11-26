@@ -139,6 +139,8 @@ def write_run_orca_file(
     command = f"#!/usr/bin/bash"
 
     try:
+        import slurm_manager
+
         slurm_options = """#SBATCH --nodes 1
 #SBATCH --ntasks-per-node 1
 #SBATCH --cpus-per-task 1
