@@ -172,7 +172,7 @@ def write_run_orca_file(
 def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
     # Adapted from https://github.com/uclchem/UCLCHEM/blob/main/src/uclchem/makerates/species.py
     if formula[0].isdigit():
-        raise ValueError(f'First character of formula {formula} was a digit. Please put repeated parts in a bracket, e.g. (CH3)2')
+        raise ValueError(f'First character of formula {formula} was a digit. Please put nrepeated parts in a bracket, e.g. (CH3)2')
 
     char_idx = 0
     atoms = []
@@ -196,41 +196,34 @@ def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
             if j <= char_idx:
                 raise ValueError(f"formula {formula} contains element(s) not in element list")
 
-            if currently_in_bracket:
-                bracket_content.append(formula[char_idx:j])
-            else:
-                atoms.append(formula[char_idx:j])  # add element to list
- 
             num_digits = find_number_of_consecutive_digits(formula, j)
-            if num_digits > 0:
-                # minus 1, because we already added this element 
-                # to the list of atoms in the previous i
-                repeat = int(formula[j: j+num_digits]) - 1
-                for _ in range(repeat):
-                    if currently_in_bracket:
-                        bracket_content.append(formula[char_idx:j])
-                    else:
-                        atoms.append(formula[char_idx:j])
+            if num_digits == 0:
+                nrepeat = 1
+            else:
+                nrepeat = int(formula[j: j+num_digits])
+            for _ in range(nrepeat):
+                if currently_in_bracket:
+                    bracket_content.append(formula[char_idx:j])
+                else:
+                    atoms.append(formula[char_idx:j])
             char_idx = j + num_digits
         else:
             # if symbol is start of a bracketed part of molecule, keep track
             if formula[char_idx] == "(":
                 currently_in_bracket = True
                 bracket_content = []
-                char_idx += 1
             # if it's the end then add bracket contents to list
             elif formula[char_idx] == ")":
                 currently_in_bracket = False
                 num_digits = find_number_of_consecutive_digits(formula, char_idx+1)
                 if num_digits == 0:
-                    repeat = 1
+                    nrepeat = 1
                 else:
-                    repeat = int(formula[char_idx + 1 : char_idx + 1 + num_digits])
-                for _ in range(repeat):
+                    nrepeat = int(formula[char_idx + 1 : char_idx + 1 + num_digits])
+                for _ in range(nrepeat):
                     atoms.extend(bracket_content)
-                char_idx += num_digits + 1
-            else:
-                char_idx += 1
+                char_idx += num_digits
+            char_idx += 1
     return atoms
 
 def find_number_of_consecutive_digits(string: str, start: int) -> int:
