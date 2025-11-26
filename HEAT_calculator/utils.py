@@ -120,3 +120,39 @@ def get_method(
     if is_atomic:
         method += "-ATOM"
     return method
+
+
+def write_run_orca_file(
+    run_path: str | Path,
+    orca_input_path: str | Path,
+    orca_output_path: str | Path | None = None,
+    orca_path: str | Path | None = None,
+) -> None:
+    command = f"#!/usr/bin/bash"
+
+    try:
+        slurm_options = """#SBATCH --nodes 1
+#SBATCH --ntasks-per-node 1
+#SBATCH --cpus-per-task 1
+#SBATCH --threads-per-core 1
+#SBATCH --time 10:00:00 
+#SBATCH --mem-per-cpu 5G"""
+        command = "\n\n".join((command, slurm_options))
+    except ImportError:
+        pass
+
+    if orca_output_path is None:
+        orca_output_path = f"{os.path.splitext(orca_input_path)[0]}.out"
+    if orca_path is None:
+        orca_path = "orca"
+
+    command = "\n\n".join(
+        (
+            command,
+            f"{orca_path} {orca_input_path} > {orca_output_path}\n\nrm *tmp*\nrm *gbw\nrm *densities*",
+        )
+    )
+
+    with open(run_path, "w") as file:
+        file.write(command)
+    set_file_executable(run_path)

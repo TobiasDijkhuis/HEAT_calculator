@@ -20,7 +20,7 @@ from .utils import (CalculationResult, IncorrectGeneratedXYZ,
                     InvalidMultiplicityError, available_methods,
                     determine_reason_calculation_failed, get_method,
                     read_final_energy_from_compound, set_file_executable,
-                    verify_type)
+                    verify_type, write_run_orca_file)
 
 
 @dataclass
@@ -159,6 +159,7 @@ RunEnd"""
         optimization_failed_path = self.directory / ".optimization_failed"
         if not force and optimization_failed_path.is_file():
             return CalculationResult.FAILED_OPTIMIZATION
+
         compound_path = (
             self.directory / f"{self.directory_safe_name}_compound_detailed.txt"
         )
@@ -170,22 +171,30 @@ RunEnd"""
 
         if orca_path is None:
             orca_path = "orca"
-        command = f"#!/usr/bin/bash\n\n{orca_path} {self.directory_safe_name}.inp > {self.directory_safe_name}.out\n\nrm *tmp*\nrm *gbw\nrm *densities*"
-        init_dir = os.getcwd()
-        os.chdir(self.directory)
-        with open("run.sh", "w") as file:
-            file.write(command)
-        set_file_executable("run.sh")
+        write_run_orca_file(
+            self.directory / "run.sh",
+            f"{self.directory_safe_name}.inp",
+            orca_path=orca_path,
+        )
 
-        time_start = time()
-        result = run("./run.sh", text=True, capture_output=True)
-        if f"{orca_path}: command not found" in result.stderr:
-            raise FileNotFoundError(
-                f"Command {orca_path} was not found. Please set path to ORCA executable correctly."
-            )
+        try:
+            from slurm_manager.job import SlurmJob
 
-        time_end = time()
-        os.chdir(init_dir)
+            job = SlurmJob.start_from_command("sbatch run.sh", directory=self.directory)
+            try:
+                job.wait()
+            except KeyboardInterrupt as e:
+                job.cancel()
+                raise KeyboardInterrupt() from e
+        except ImportError:
+            init_dir = os.getcwd()
+            os.chdir(self.directory)
+            result = run("./run.sh", text=True, capture_output=True)
+            if f"{orca_path}: command not found" in result.stderr:
+                raise FileNotFoundError(
+                    f"Command {orca_path} was not found. Please set path to ORCA executable correctly."
+                )
+            os.chdir(init_dir)
 
         if compound_path.is_file():
             self.energy = (
