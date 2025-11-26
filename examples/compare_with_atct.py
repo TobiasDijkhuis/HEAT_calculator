@@ -3,22 +3,8 @@ from time import time
 import matplotlib.pyplot as plt
 
 from HEAT_calculator.species import (Species, calculate_dct_species,
-                                     get_reference_species)
-
-method = "G2-MP2-SVP"
-directory = "compare_ATcT_reduced_precision"
-force = False
-njobs = 2
-
-colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-
-calculated_atoms = get_reference_species(
-    ["H", "O", "C", "S", "N"],
-    method=method,
-    directory=directory,
-    force=force,
-    njobs=njobs,
-)
+                                     calculate_reference_species,
+                                     get_elements_in_species)
 
 # Formation enthalpies at 0 K taken from ATcT ver. 1.220,
 # in kcal/mol
@@ -67,7 +53,11 @@ smiles_dct = {
     "OH-": ("[OH]-", -1, None),
 }
 
-assert len(smiles_dct) == len(species_atct), "Not same length."
+
+method = "G2-MP2-SVP"
+directory = "compare_ATcT_reduced_precision"
+force = False
+njobs = 2
 
 time_start = time()
 ground_states = calculate_dct_species(
@@ -78,14 +68,26 @@ ground_states = calculate_dct_species(
     force=force,
     njobs=njobs,
 )
+
+atoms = get_elements_in_species(ground_states.values())
+calculated_atoms = calculate_reference_species(
+    atoms,
+    method=method,
+    directory=directory,
+    force=force,
+    njobs=njobs,
+)
+
 time_end = time()
 print(
     f"Using {njobs} jobs, calculating the species took {time_end - time_start:.2f} seconds"
 )
 
+colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
 plt.figure()
 running_sum_abs_deviation = 0.0
-for spec in species_atct:
+for spec in ground_states:
     formation_enthalpy = ground_states[spec].calculate_enthalpy_of_formation(
         calculated_atoms
     )
@@ -105,7 +107,7 @@ for spec in species_atct:
     )
     running_sum_abs_deviation += abs(formation_enthalpy - species_atct[spec])
 
-mean_absolute_deviaton = running_sum_abs_deviation / len(species_atct)
+mean_absolute_deviaton = running_sum_abs_deviation / len(ground_states)
 xlim = plt.gca().get_xlim()
 ylim = plt.gca().get_ylim()
 

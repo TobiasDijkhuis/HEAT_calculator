@@ -5,6 +5,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import partial
+from itertools import chain
 from multiprocessing.pool import Pool
 from pathlib import Path
 from subprocess import run
@@ -45,6 +46,7 @@ class Species:
         self.directory_safe_name = self.name.replace(")", "b").replace("(", "b")
 
         self.constituents = self._find_constituents()
+        self.elements = list(set(self.constituents))
         self.mass = self._calculate_mass()
         self.num_electrons = self._calculate_num_electrons()
 
@@ -638,7 +640,7 @@ def calculate_dct_species(
     return ground_states
 
 
-def get_reference_species(
+def calculate_reference_species(
     reference_atoms: list[str],
     max_multiplicity: int = 4,
     orca_path: str | Path | None = None,
@@ -680,3 +682,18 @@ def get_reference_species(
         njobs=njobs,
         disable_progress_bar=disable_progress_bar,
     )
+
+
+def get_elements_in_species(species: list[Species]) -> list[str]:
+    """Determine the unique elements in the entire species list
+
+    Args:
+        species (list[Species]): list of species
+
+    Returns:
+        list[str]: list of all constituent elemnents
+    """
+    total_set = set()
+    for spec in species:
+        total_set.update(spec.elements)
+    return list(total_set)
