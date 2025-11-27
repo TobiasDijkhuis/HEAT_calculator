@@ -37,6 +37,7 @@ from .utils import (
     slurm_manager_is_installed,
     verify_type,
     write_run_orca_file,
+    write_xyz,
 )
 
 
@@ -72,6 +73,7 @@ class Species:
         self,
         directory: str | Path | None = None,
         method: Literal[available_methods] = "G2-MP2-SVP",
+        atoms_and_coordinates: tuple[list[str], list[list[float]]] | None = None,
         reduce_coordinate_precision: bool = True,
     ) -> None:
         """Write the input files for the ORCA calculation.
@@ -79,9 +81,13 @@ class Species:
         Args:
             directory (str | Path | None): directory to calculate in. Default: None
             method (Literal[available_methods]): method to use. Default: "G2-MP2-SVP"
+            atoms_and_coordinates (tuple[list[str], list[list[float]]] | None):
+                list of atoms, and list of coordinates of atoms.
+                If None, generate the structure using OpenBabel.
             reduce_coordinate_precision (bool): whether to reduce the precision of
                 coordinates in the generated xyz file. This can help with ORCA
                 inferring incorrect symmetries. Default: True
+
 
         """
         if directory is not None:
@@ -91,7 +97,17 @@ class Species:
         if not self.directory.is_dir():
             self.directory.mkdir(parents=True)
 
-        self._generate_xyz(reduce_coordinate_precision=reduce_coordinate_precision)
+        if atoms_and_coordinates is None:
+            self._generate_xyz()
+        else:
+            write_xyz(
+                *atoms_and_coordinates,
+                self.directory / f"{self.directory_safe_name}.xyz",
+                comment="Created from user-supplied coordinates",
+            )
+
+        if reduce_coordinate_precision:
+            self._reduce_coordinate_precision()
 
         input = self._get_orca_input(method=method)
         with open(self.directory / f"{self.directory_safe_name}.inp", "w") as file:
@@ -122,9 +138,6 @@ class Species:
 
         self._verify_generated_xyz()
 
-        if reduce_coordinate_precision:
-            self._reduce_coordinate_precision()
-
     def _verify_generated_xyz(self) -> None:
         """Verify that the generated xyz structure has the correct number of
         atoms and correct number of each element.
@@ -151,16 +164,18 @@ class Species:
         atoms, coordinates, comment = read_xyz(
             self.directory / f"{self.directory_safe_name}.xyz"
         )
-        coordinate_lines = "\n".join(
-            [
-                f"{atom}    {'    '.join([f'{coord:.3f}' for coord in coordinate])}"
-                for atom, coordinate in zip(atoms, coordinates)
-            ]
-        )
-        new_xyz = "\n".join((f"{len(atoms)}\n{comment}", coordinate_lines, ""))
 
-        with open(self.directory / f"{self.directory_safe_name}.xyz", "w") as file:
-            file.write(new_xyz)
+        coordinates = [
+            [round(coord, 3) for coord in atom_coordinates]
+            for atom_coordinates in coordinates
+        ]
+
+        write_xyz(
+            atoms,
+            coordinates,
+            self.directory / f"{self.directory_safe_name}.xyz",
+            comment=comment,
+        )
 
     def _get_orca_input(self, method: Literal[available_methods] = "G2-MP2-SVP") -> str:
         method = get_method(self.is_atomic(), method=method)

@@ -399,6 +399,42 @@ def read_xyz(filepath: str | Path) -> tuple[list[str], list[list[float]], str]:
     return atoms, coordinates, comment
 
 
+def write_xyz(
+    atoms: list[str],
+    coordinates: list[list[float]],
+    filepath: str | Path,
+    comment: str | None = None,
+) -> None:
+    """Write an xyz file.
+
+    Args:
+        atoms (list[str]): list of atoms
+        coordinates (list[list[float]]): list of coordinates in Angstrom
+        filepath (str | Path): filepath
+        comment (str | None): comment to put on the second line of the xyz file.
+            Default: None
+
+    """
+    if not len(atoms) == len(coordinates):
+        raise ValueError(
+            f"Number of atoms ({len(atoms)}) is not the same as the number of coordinates ({len(coordinates)})"
+        )
+
+    if comment is None:
+        comment = ""
+
+    coordinate_lines = "\n".join(
+        [
+            f"{atom}    {'    '.join([str(coord) for coord in coordinate])}"
+            for atom, coordinate in zip(atoms, coordinates)
+        ]
+    )
+
+    lines = "\n".join((f"{len(atoms)}\n{comment}", coordinate_lines, ""))
+    with open(filepath, "w") as file:
+        file.write(lines)
+
+
 def calculate_center_of_mass(
     coordinates: list[list[float]] | np.ndarray, masses: list[float] | np.ndarray
 ) -> list[float]:
