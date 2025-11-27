@@ -388,24 +388,25 @@ def read_xyz(filepath: str | Path) -> tuple[list[str], list[list[float]], str]:
     """
     with open(filepath) as file:
         lines = file.readlines()
+    natoms = int(lines[0].strip())
     comment = lines[1].strip()
-    atoms = []
-    coordinates = []
-    for line in lines[2:]:
+    atoms = [""] * natoms
+    coordinates = [[0.0, 0.0, 0.0]] * natoms
+    for atom_idx, line in enumerate(lines[2:]):
         split_line = line.split()
-        atoms.append(split_line[0])
-        coordinates.append([float(field) for field in split_line[1:]])
+        atoms[atom_idx] = split_line[0]
+        coordinates[atom_idx] = [float(field) for field in split_line[1:4]]
     return atoms, coordinates, comment
 
 
 def calculate_center_of_mass(
     coordinates: list[list[float]] | np.ndarray, masses: list[float] | np.ndarray
 ) -> list[float]:
-    """Calculate the center of mass from coordinates and masses.
+    """Calculate the center of mass for a set of point masses.
 
     Args:
         coordinates (list[list[float]] | np.ndarray): list of coordinates
-        masses (list[float] | np.ndarray): masses of point masses
+        masses (list[float] | np.ndarray): masses of the point masses
 
     Returns:
         np.ndarray: center of mass
@@ -426,10 +427,10 @@ def calculate_inertia_tensor(
 
     Args:
         atoms (list[str]): list of atoms
-        coordinates (list[float[float]]): list of coordinates
+        coordinates (list[float[float]] | np.ndarray): list of coordinates in Angstrom
 
     Returns:
-        inertia_tensor (ndarray): inertia tensor in kg m^2
+        inertia_tensor (np.ndarray): inertia tensor in kg m^2
 
     """
     # https://en.wikipedia.org/wiki/Moment_of_inertia#Inertia_tensor
@@ -465,7 +466,7 @@ def calculate_principal_moments_of_inertia(
 
     Args:
         atoms (list[str]): list of atoms
-        coordinates (list[float[float]]): list of coordinates
+        coordinates (list[float[float]] | np.ndarray): list of coordinates in Angstrom
         eps (float): if a principal moment of inertia is below this, set it to 0.
             Default: 10^-9 amu Angstrom^2
 
@@ -481,5 +482,4 @@ def calculate_principal_moments_of_inertia(
 
     principal_moments = principal_moments[indeces] * KGM2_TO_AMU_ANGSTROM2
     principal_moments[principal_moments < eps] = 0.0
-
     return principal_moments, principal_axes[indeces]
