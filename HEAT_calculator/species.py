@@ -113,15 +113,8 @@ class Species:
         with open(self.directory / f"{self.directory_safe_name}.inp", "w") as file:
             file.write(input)
 
-    def _generate_xyz(self, reduce_coordinate_precision: bool = False) -> None:
-        """Generate a 3D structure from the smiles code.
-
-        Args:
-            reduce_coordinate_precision (bool): whether to reduce the precision of
-                coordinates in the generated xyz file. This can help prevent ORCA
-                inferring incorrect symmetries. Default: True
-
-        """
+    def _generate_xyz(self) -> None:
+        """Generate a 3D structure from the smiles code."""
         with open(self.directory / f"{self.directory_safe_name}.smi", "w") as file:
             file.write(self.smiles)
         command = f"obabel --title {self.name} -ismi {self.directory / self.directory_safe_name}.smi -oxyz -O {self.directory / self.directory_safe_name}.xyz -h --gen3d --best"
