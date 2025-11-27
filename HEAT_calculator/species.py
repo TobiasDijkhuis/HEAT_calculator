@@ -51,6 +51,9 @@ class Species:
     multiplicity: int = 1
     # TODO: Maybe rename "name" to "formula", and allow "name" to be an optional
     #   string for things like name="methanol", formula="CH3OH".
+    # TODO: Move smiles from here to create_input_files as optional argument.
+    #   Ensure either atoms_and_coordinates or smiles is passed there,
+    #   we really dont need the smiles if we have the atoms and coordinates.
 
     def __post_init__(self) -> None:
         """Verify types of arguments of __init__, and calculate things like the mass."""
@@ -88,7 +91,6 @@ class Species:
                 coordinates in the generated xyz file. This can help with ORCA
                 inferring incorrect symmetries. Default: True
 
-
         """
         if directory is not None:
             self.directory = Path(directory) / self.directory_safe_name
@@ -119,11 +121,12 @@ class Species:
         reduce_coordinate_precision (bool): whether to reduce the precision of
             coordinates in the generated xyz file. This can help with ORCA
             inferring incorrect symmetries. Default: True
+
         """
         if atoms_and_coordinates is None:
             with open(self.directory / f"{self.directory_safe_name}.smi", "w") as file:
                 file.write(self.smiles)
-            command = f"obabel --title {self.name} -ismi {self.directory / self.directory_safe_name}.smi -oxyz -O {self.directory / self.directory_safe_name}.xyz -h --gen3d --best"
+            command = f'obabel --title "{self.name}, created from SMILES {self.smiles}" -ismi {self.directory / self.directory_safe_name}.smi -oxyz -O {self.directory / self.directory_safe_name}.xyz -h --gen3d --best'
             try:
                 result = run(command.split(), text=True, capture_output=True)
             except FileNotFoundError as e:
@@ -138,7 +141,7 @@ class Species:
             write_xyz(
                 *atoms_and_coordinates,
                 self.directory / f"{self.directory_safe_name}.xyz",
-                comment=f"{self.name}, Created from user-supplied coordinates",
+                comment=f"{self.name}, created from user-supplied coordinates",
             )
 
         self._verify_generated_xyz()
