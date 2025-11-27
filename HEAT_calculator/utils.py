@@ -362,3 +362,28 @@ def slurm_manager_is_installed() -> bool:
         return True
     except ImportError:
         return False
+
+
+def read_xyz(filepath: str | Path) -> tuple[list[str], list[list[float]], str]:
+    """Read xyz file.
+
+    Args:
+        filepath (str | Path): xyz path
+
+    Returns:
+        atoms (list[str]): list of atoms
+        coordinates (list[list[float]]): 2-dimensional list of coordinates
+            of each atom
+        comment (str): comment on second line of file
+
+    """
+    with open(filepath) as file:
+        lines = file.readlines()
+    comment = lines[1].strip()
+    atoms = []
+    coordinates = []
+    for line in lines[2:]:
+        split_line = line.split()
+        atoms.append(split_line[0])
+        coordinates.append([float(field) for field in split_line[1:]])
+    return atoms, coordinates, comment

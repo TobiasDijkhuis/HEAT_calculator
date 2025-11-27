@@ -10,6 +10,7 @@ from functools import partial
 from multiprocessing.pool import Pool
 from pathlib import Path
 from subprocess import run
+from textwrap import dedent
 from time import time
 from typing import Literal
 
@@ -32,6 +33,7 @@ from .utils import (
     format_formula_as_tex,
     get_method,
     read_final_energy_from_compound,
+    read_xyz,
     slurm_manager_is_installed,
     verify_type,
     write_run_orca_file,
@@ -128,16 +130,15 @@ class Species:
         atoms and correct number of each element.
 
         """
-        with open(self.directory / f"{self.directory_safe_name}.xyz") as file:
-            lines = file.readlines()
-        num_atoms = int(lines[0].strip())
-        if not self.num_atoms == num_atoms:
+        atoms, _, _ = read_xyz(self.directory / f"{self.directory_safe_name}.xyz")
+        if not self.num_atoms == len(atoms):
             raise IncorrectGeneratedXYZ(
-                f"Number of atoms in generated xyz file ({num_atoms}) does not match the number of atoms inferred from the molecular formula ({self.num_atoms}) of {self.formula}. Check smiles ({self.smiles})"
+                f"Number of atoms in generated xyz file ({len(atoms)}) does not match the number of atoms inferred from the molecular formula ({self.num_atoms}) of {self.formula}. Check smiles ({self.smiles})"
             )
-        atoms = [line.split()[0] for line in lines[2:]]
         if not sorted(atoms) == sorted(self.constituents):
-            raise IncorrectGeneratedXYZ()
+            raise IncorrectGeneratedXYZ(
+                f"The atoms in the generated xyz file and inferred from the formula did not match.\nGenerated: {sorted(atoms)}\nFormula: {sorted(self.constituents)}"
+            )
 
     def _reduce_coordinate_precision(self) -> None:
         """Reduce the precision of coordinates in the generated xyz
@@ -147,30 +148,30 @@ class Species:
         and keeping geometries more constrained during optimization.
 
         """
-        with open(self.directory / f"{self.directory_safe_name}.xyz") as file:
-            lines = file.readlines()
-        for i, line in enumerate(lines):
-            if i < 2:
-                lines[i] = line.strip()
-                continue
-            line_split = line.split()
-            lines[i] = (
-                f"  {line_split[0]}  {'  '.join([f'{float(val):.3f}' for val in line_split[1:]])}"
+        atoms, coordinates, comment = read_xyz(
+            self.directory / f"{self.directory_safe_name}.xyz"
+        )
+        new_xyz = f"{len(atoms)}\n{comment}"
+        for atom, coordinate in zip(atoms, coordinates):
+            new_xyz += (
+                f"\n{atom}    {'    '.join([f'{coord:.3f}' for coord in coordinate])}"
             )
-        with open(self.directory / f"{self.name}.xyz", "w") as file:
-            file.write("\n".join(lines))
+        new_xyz += "\n"
+
+        with open(self.directory / f"{self.directory_safe_name}.xyz", "w") as file:
+            file.write(new_xyz)
 
     def _get_orca_input(self, method: Literal[available_methods] = "G2-MP2-SVP") -> str:
-        # TODO: use textwrap.dedent to make this cleaner
         method = get_method(self.is_atomic(), method=method)
-        return f"""# Automatically generated ORCA input at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-# Calculate high accuracy energies for the use of calculating thermodynamic values
-!compound[{method}]
-* xyzfile {self.charge} {self.multiplicity} {self.directory_safe_name}.xyz
-%compound[{method}]
-    with
-        molecule = {self.directory_safe_name}.xyz
-RunEnd"""
+        input_text = f"""# Automatically generated ORCA input at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        # Calculate high accuracy energies for the use of calculating thermodynamic values
+        !compound[{method}]
+        * xyzfile {self.charge} {self.multiplicity} {self.directory_safe_name}.xyz
+        %compound[{method}]
+            with
+                molecule = {self.directory_safe_name}.xyz
+        RunEnd"""
+        return dedent(input_text)
 
     def calculate_energy(
         self, orca_path: str | Path | None = None, force: bool = False
@@ -295,6 +296,17 @@ RunEnd"""
                 - calculated_reference_atoms[atom].energy
             )
         return formation_enthalpy
+
+    def get_optimized_geometry(self) -> tuple[list[str], list[list[float]], str]:
+        """Get the optimized geometry."""
+        optimized_geometry_path = (
+            self.directory / f"{self.directory_safe_name}_Compound_2.xyz"
+        )
+        if not optimized_geometry_path.is_file():
+            raise FileNotFoundError(
+                f"Optimized geometry path {optimized_geometry_path} does not exist. First calculate energy using Species.calculate_energy"
+            )
+        return read_xyz(self.directory / f"{self.directory_safe_name}_Compound_2.xyz")
 
     def _find_constituents(self) -> list[str]:
         """Loop through the species' name and work out what its consituent atoms are.
@@ -467,13 +479,13 @@ def get_ground_state_species(species_list: list[Species], name: str) -> Species:
 
     Returns:
         minimum_spec (Species): Species instance with the minimum energy.
-            Its name is changed to the Species.split_name.
+            Its name is changed to the Species.formula.
 
     """
     minimum_energy = sys.float_info.max
     minimum_spec = None
     for spec in species_list:
-        if spec.split_name != name:
+        if spec.formula != name:
             continue
         if spec.energy is None:
             continue
@@ -484,7 +496,7 @@ def get_ground_state_species(species_list: list[Species], name: str) -> Species:
         raise ValueError(
             f"No suitable Species with name {name} with a valid energy was found in species_list"
         )
-    minimum_spec.name = minimum_spec.split_name
+    minimum_spec.name = minimum_spec.formula
     return minimum_spec
 
 
