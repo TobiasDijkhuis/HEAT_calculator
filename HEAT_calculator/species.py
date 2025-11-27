@@ -97,39 +97,54 @@ class Species:
         if not self.directory.is_dir():
             self.directory.mkdir(parents=True)
 
-        if atoms_and_coordinates is None:
-            self._generate_xyz()
-        else:
-            write_xyz(
-                *atoms_and_coordinates,
-                self.directory / f"{self.directory_safe_name}.xyz",
-                comment="Created from user-supplied coordinates",
-            )
-
-        if reduce_coordinate_precision:
-            self._reduce_coordinate_precision()
+        self._generate_xyz(
+            atoms_and_coordinates=atoms_and_coordinates,
+            reduce_coordinate_precision=reduce_coordinate_precision,
+        )
 
         input = self._get_orca_input(method=method)
         with open(self.directory / f"{self.directory_safe_name}.inp", "w") as file:
             file.write(input)
 
-    def _generate_xyz(self) -> None:
-        """Generate a 3D structure from the smiles code."""
-        with open(self.directory / f"{self.directory_safe_name}.smi", "w") as file:
-            file.write(self.smiles)
-        command = f"obabel --title {self.name} -ismi {self.directory / self.directory_safe_name}.smi -oxyz -O {self.directory / self.directory_safe_name}.xyz -h --gen3d --best"
-        try:
-            result = run(command.split(), text=True, capture_output=True)
-        except FileNotFoundError as e:
-            raise FileNotFoundError(
-                "Command 'obabel' was not found. OpenBabel is required for 3D geometry generation.\nSee https://openbabel.org/docs/Installation/install.html"
-            ) from e
-        if not result.stderr == "1 molecule converted\n":
-            raise RuntimeError(
-                f"Error in generating xyz file of {self}\n{result.stderr}"
+    def _generate_xyz(
+        self,
+        atoms_and_coordinates: tuple[list[str], list[list[float]]] | None = None,
+        reduce_coordinate_precision: bool = True,
+    ) -> None:
+        """Generate the coordinates of the Species.
+
+        atoms_and_coordinates (tuple[list[str], list[list[float]]] | None):
+            list of atoms, and list of coordinates of atoms in Angstrom.
+            If None, generate the structure using OpenBabel.
+        reduce_coordinate_precision (bool): whether to reduce the precision of
+            coordinates in the generated xyz file. This can help with ORCA
+            inferring incorrect symmetries. Default: True
+        """
+        if atoms_and_coordinates is None:
+            with open(self.directory / f"{self.directory_safe_name}.smi", "w") as file:
+                file.write(self.smiles)
+            command = f"obabel --title {self.name} -ismi {self.directory / self.directory_safe_name}.smi -oxyz -O {self.directory / self.directory_safe_name}.xyz -h --gen3d --best"
+            try:
+                result = run(command.split(), text=True, capture_output=True)
+            except FileNotFoundError as e:
+                raise FileNotFoundError(
+                    "Command 'obabel' was not found. OpenBabel is required for 3D geometry generation.\nSee https://openbabel.org/docs/Installation/install.html"
+                ) from e
+            if not result.stderr == "1 molecule converted\n":
+                raise RuntimeError(
+                    f"Error in generating xyz file of {self}\n{result.stderr}"
+                )
+        else:
+            write_xyz(
+                *atoms_and_coordinates,
+                self.directory / f"{self.directory_safe_name}.xyz",
+                comment=f"{self.name}, Created from user-supplied coordinates",
             )
 
         self._verify_generated_xyz()
+
+        if reduce_coordinate_precision:
+            self._reduce_coordinate_precision()
 
     def _verify_generated_xyz(self) -> None:
         """Verify that the generated xyz structure has the correct number of
