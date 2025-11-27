@@ -151,12 +151,13 @@ class Species:
         atoms, coordinates, comment = read_xyz(
             self.directory / f"{self.directory_safe_name}.xyz"
         )
-        new_xyz = f"{len(atoms)}\n{comment}"
-        for atom, coordinate in zip(atoms, coordinates):
-            new_xyz += (
-                f"\n{atom}    {'    '.join([f'{coord:.3f}' for coord in coordinate])}"
-            )
-        new_xyz += "\n"
+        coordinate_lines = "\n".join(
+            [
+                f"{atom}    {'    '.join([f'{coord:.3f}' for coord in coordinate])}"
+                for atom, coordinate in zip(atoms, coordinates)
+            ]
+        )
+        new_xyz = "\n".join((f"{len(atoms)}\n{comment}", coordinate_lines, ""))
 
         with open(self.directory / f"{self.directory_safe_name}.xyz", "w") as file:
             file.write(new_xyz)
