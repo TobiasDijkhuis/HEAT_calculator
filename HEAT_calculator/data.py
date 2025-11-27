@@ -255,3 +255,8 @@ atom_ground_state_multiplicities = {"H": 2, "O": 3, "C": 3, "N": 4, "S": 3}
 element_list = list(atomic_numbers.keys())
 
 HARTREE_TO_KCALPERMOL = 627.509
+AMU_TO_KG = 1.66053907e-27
+KG_TO_AMU = 1.0 / AMU_TO_KG
+ANGSTROM_TO_METERS = 1e-10
+METERS_TO_ANGSTROM = 1.0 / 1e-10
+KGM2_TO_AMU_ANGSTROM2 = KG_TO_AMU * METERS_TO_ANGSTROM * METERS_TO_ANGSTROM

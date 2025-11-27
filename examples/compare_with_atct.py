@@ -58,7 +58,7 @@ if __name__ == "__main__":
 
     method = "G2-MP2-SVP"
     directory = "compare_ATcT_reduced_precision"
-    force = True
+    force = False
     njobs = 2
 
     time_start = time()

@@ -6,9 +6,18 @@ import re
 import stat
 from enum import Enum, auto
 from pathlib import Path
+from textwrap import dedent
 from typing import Any, Literal
 
-from .data import element_list
+import numpy as np
+
+from .data import (
+    AMU_TO_KG,
+    ANGSTROM_TO_METERS,
+    KGM2_TO_AMU_ANGSTROM2,
+    atomic_masses,
+    element_list,
+)
 
 
 class InvalidMultiplicityError(Exception):
@@ -173,12 +182,12 @@ def write_run_orca_file(
     command = "#!/usr/bin/bash"
 
     if slurm_manager_is_installed():
-        slurm_options = """#SBATCH --nodes 1
-#SBATCH --ntasks-per-node 1
-#SBATCH --cpus-per-task 1
-#SBATCH --threads-per-core 1
-#SBATCH --time 10:00:00
-#SBATCH --mem-per-cpu 5G"""
+        slurm_options = dedent("""#SBATCH --nodes 1
+            #SBATCH --ntasks-per-node 1
+            #SBATCH --cpus-per-task 1
+            #SBATCH --threads-per-core 1
+            #SBATCH --time 10:00:00
+            #SBATCH --mem-per-cpu 5G""")
         command = "\n\n".join((command, slurm_options))
 
     if orca_output_path is None:
@@ -387,3 +396,90 @@ def read_xyz(filepath: str | Path) -> tuple[list[str], list[list[float]], str]:
         atoms.append(split_line[0])
         coordinates.append([float(field) for field in split_line[1:]])
     return atoms, coordinates, comment
+
+
+def calculate_center_of_mass(
+    coordinates: list[list[float]] | np.ndarray, masses: list[float] | np.ndarray
+) -> list[float]:
+    """Calculate the center of mass from coordinates and masses.
+
+    Args:
+        coordinates (list[list[float]] | np.ndarray): list of coordinates
+        masses (list[float] | np.ndarray): masses of point masses
+
+    Returns:
+        np.ndarray: center of mass
+
+    """
+    if isinstance(coordinates, list) and isinstance(coordinates[0], list):
+        coordinates = np.array(coordinates)
+    if isinstance(masses, list):
+        masses = np.array(masses)
+
+    return np.sum(coordinates.T * masses, axis=1) / np.sum(masses)
+
+
+def calculate_inertia_tensor(
+    atoms: list[str], coordinates: list[list[float]] | np.ndarray
+) -> np.ndarray:
+    """Get the moment of inertia tensor.
+
+    Args:
+        atoms (list[str]): list of atoms
+        coordinates (list[float[float]]): list of coordinates
+
+    Returns:
+        inertia_tensor (ndarray): inertia tensor in kg m^2
+
+    """
+    # https://en.wikipedia.org/wiki/Moment_of_inertia#Inertia_tensor
+    if isinstance(coordinates, list) and isinstance(coordinates[0], list):
+        coordinates = np.array(coordinates)
+
+    masses = np.array([atomic_masses[atom] for atom in atoms])
+    center_of_mass = calculate_center_of_mass(coordinates, masses)
+
+    # Calculate moments of inertia to axes wrt COM
+    coordinates = coordinates - center_of_mass
+
+    inertia_tensor = np.zeros((3, 3))
+    for mass, coords in zip(masses, coordinates):
+        inertia_tensor[0, 0] += mass * (coords[1] * coords[1] + coords[2] * coords[2])
+        inertia_tensor[1, 1] += mass * (coords[0] * coords[0] + coords[2] * coords[2])
+        inertia_tensor[2, 2] += mass * (coords[0] * coords[0] + coords[1] * coords[1])
+        inertia_tensor[0, 1] -= mass * coords[0] * coords[1]
+        inertia_tensor[0, 2] -= mass * coords[0] * coords[2]
+        inertia_tensor[1, 2] -= mass * coords[1] * coords[2]
+    inertia_tensor[1, 0] = inertia_tensor[0, 1]
+    inertia_tensor[2, 0] = inertia_tensor[0, 2]
+    inertia_tensor[2, 1] = inertia_tensor[1, 2]
+    return inertia_tensor * AMU_TO_KG * ANGSTROM_TO_METERS * ANGSTROM_TO_METERS
+
+
+def calculate_principal_moments_of_inertia(
+    atoms: list[str],
+    coordinates: list[list[float]],
+    eps: float = 1e-9,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Get the principal moments of inertia and the principal axes.
+
+    Args:
+        atoms (list[str]): list of atoms
+        coordinates (list[float[float]]): list of coordinates
+        eps (float): if a principal moment of inertia is below this, set it to 0.
+            Default: 10^-9 amu Angstrom^2
+
+    Returns:
+        principal_moments (ndarray): array of length 3 with the three principal
+            moments of inertia in amu Angstrom^2
+        principal_axes (ndarray): matrix of shape 3x3 with three principal moment axes
+
+    """
+    inertia_tensor = calculate_inertia_tensor(atoms, coordinates)
+    principal_moments, principal_axes = np.linalg.eig(inertia_tensor)
+    indeces = np.argsort(principal_moments)
+
+    principal_moments = principal_moments[indeces] * KGM2_TO_AMU_ANGSTROM2
+    principal_moments[principal_moments < eps] = 0.0
+
+    return principal_moments, principal_axes[indeces]
