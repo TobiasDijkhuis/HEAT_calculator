@@ -1,6 +1,5 @@
 from python_tools import format_float_as_twocol_tex
-
-from species import Species, calculate_dct_species, get_reference_species
+from species import calculate_dct_species, get_reference_species
 
 force = False
 directory = "new_values_for_network"

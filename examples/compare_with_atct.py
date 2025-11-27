@@ -2,9 +2,11 @@ from time import time
 
 import matplotlib.pyplot as plt
 
-from HEAT_calculator.species import (Species, calculate_dct_species,
-                                     calculate_reference_species,
-                                     get_elements_in_species)
+from HEAT_calculator.species import (
+    calculate_dct_species,
+    calculate_reference_species,
+    get_elements_in_species,
+)
 
 # Formation enthalpies at 0 K taken from ATcT ver. 1.220,
 # in kcal/mol
@@ -56,7 +58,7 @@ smiles_dct = {
 
 method = "G2-MP2-SVP"
 directory = "compare_ATcT_reduced_precision"
-force = False
+force = True
 njobs = 2
 
 time_start = time()
@@ -131,5 +133,5 @@ plt.text(
 
 plt.tight_layout()
 
-plt.savefig(f"comparison_ATcT_G2.pdf")
+plt.savefig("comparison_ATcT_G2.pdf")
 plt.show()

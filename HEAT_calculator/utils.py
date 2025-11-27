@@ -1,19 +1,20 @@
+import importlib
 import os
 import re
 import stat
-from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Literal
 
 from .data import element_list
 
+
 class InvalidMultiplicityError(Exception):
     """Error to indicate that the given multiplicity is impossible."""
 
 
 class IncorrectGeneratedXYZ(Exception):
-    """Error to indicate that a generated XYZ file does not match the desired molecular formula"""
+    """Error to indicate that a generated XYZ file does not match the desired molecular formula."""
 
 
 class CalculationResult(Enum):
@@ -33,13 +34,14 @@ class CalculationResult(Enum):
 
 
 def read_final_energy_from_compound(filepath: str | Path) -> float:
-    """Read the final energy after a compound method
+    """Read the final energy after a compound method.
 
     Args:
         filepath (str | Path): filepath of the "compound_detailed" file created by ORCA
 
     Returns:
         energy: the FinalEnergy in Hartree
+
     """
     with open(filepath, "r") as file:
         lines = file.readlines()
@@ -56,7 +58,15 @@ def read_final_energy_from_compound(filepath: str | Path) -> float:
 
 
 def determine_reason_calculation_failed(filepath: str | Path) -> CalculationResult:
-    """An easy way to determine why a calculation failed."""
+    """Determine why a calculation failed.
+
+    Args:
+        filepath (str | Path): filepath of orca output file
+
+    Returns:
+        CalculationResult: reason why the calculation failed
+
+    """
     with open(filepath) as file:
         lines = file.readlines()
     for line in lines[::-1]:
@@ -69,21 +79,23 @@ def determine_reason_calculation_failed(filepath: str | Path) -> CalculationResu
 
 
 def set_file_executable(filepath: str | Path) -> None:
-    """Set a file to be executable from subprocess.run
+    """Set a file to be executable from subprocess.run.
 
     Args:
         filepath (str | Path): file to set to be executable
+
     """
-    os.chmod(filepath, mode=stat.S_IRWXG | stat.S_IRWXU | stat.S_IREAD)
+    os.chmod(filepath, mode=stat.S_IRWXG | stat.S_IRWXU | stat.S_IREAD)  # noqa: PTH101
 
 
-def verify_type(value: Any, desired_type: type, name: str) -> None:
-    """Verify the type of a parameter is as desired
+def verify_type(value: Any, desired_type: type, name: str) -> None:  # noqa: ANN401
+    """Verify the type of a parameter is as desired.
 
     Args:
         value (Any): parameter to check
         desired_type (Any): desired type of parameter
         name (str): name of parameter to make error more clear
+
     """
     if not isinstance(value, desired_type):
         raise TypeError(
@@ -108,19 +120,21 @@ available_methods = [
 def get_method(
     is_atomic: bool, method: Literal[available_methods] = "G2-MP2-SVP"
 ) -> str:
-    """Verify that the desired method is valid, and add "-ATOM" to it if the species is atomic
+    """Verify that the desired method is valid, and add "-ATOM" to it if the species is atomic.
 
     Args:
         is_atomic (bool): Whether the species is atomic (i.e. consists of only one atom)
-        method (Literal[available_methods]): one of the available methods. Case-insensitive. Default: "G2-MP2-SVP"
+        method (Literal[available_methods]): one of the available methods.
+            Case-insensitive. Default: "G2-MP2-SVP"
 
     Returns:
         method (str): the method
+
     """
     method = method.upper()
     if "ATOM" in method:
         raise ValueError(
-            f"This code will take care of adding ATOM to the method if necessary."
+            "This code will take care of adding ATOM to the method if necessary."
         )
     if method not in available_methods:
         raise ValueError(
@@ -137,23 +151,19 @@ def write_run_orca_file(
     orca_output_path: str | Path | None = None,
     orca_path: str | Path | None = None,
 ) -> None:
-    command = f"#!/usr/bin/bash"
+    command = "#!/usr/bin/bash"
 
-    try:
-        import slurm_manager
-
+    if slurm_manager_is_installed():
         slurm_options = """#SBATCH --nodes 1
 #SBATCH --ntasks-per-node 1
 #SBATCH --cpus-per-task 1
 #SBATCH --threads-per-core 1
-#SBATCH --time 10:00:00 
+#SBATCH --time 10:00:00
 #SBATCH --mem-per-cpu 5G"""
         command = "\n\n".join((command, slurm_options))
-    except ImportError:
-        pass
 
     if orca_output_path is None:
-        orca_output_path = f"{os.path.splitext(orca_input_path)[0]}.out"
+        orca_output_path = f"{Path(orca_input_path).stem}.out"
     if orca_path is None:
         orca_path = "orca"
 
@@ -170,11 +180,26 @@ def write_run_orca_file(
 
 
 def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
+    """Determine the constituent atoms in a molecular formula.
+
+    Args:
+        formula (str): molecular formula
+
+    Returns:
+        atoms (list[str]): atoms in the molecular formula
+
+    For example:
+        >> determine_atoms_from_molecular_formula("H2O") -> ["H", "H", "O"]
+        >> determine_atoms_from_molecular_formula("(CH)2") -> ["C", "H", "C", "H"]
+
+    """
     # Adapted from https://github.com/uclchem/UCLCHEM/blob/main/src/uclchem/makerates/species.py
-    verify_type(formula, str, 'formula')
+    verify_type(formula, str, "formula")
 
     if formula[0].isdigit():
-        raise ValueError(f'First character of formula {formula} was a digit. Please put repeated parts in a bracket with number after, e.g. (CH3)2')
+        raise ValueError(
+            f"First character of formula {formula} was a digit. Please put repeated parts in a bracket with number after, e.g. (CH3)2"
+        )
 
     char_idx = 0
     atoms = []
@@ -196,16 +221,18 @@ def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
                 j = char_idx + 1
             # if we've found a new element check for numbers otherwise print error
             if j <= char_idx:
-                raise ValueError(f"formula {formula} contains element(s) not in element list")
+                raise ValueError(
+                    f"formula {formula} contains element(s) not in element list"
+                )
 
             num_digits = find_number_of_consecutive_digits(formula, j)
             if num_digits == 0:
                 nrepeat = 1
             else:
-                nrepeat = int(formula[j: j+num_digits])
+                nrepeat = int(formula[j : j + num_digits])
             for _ in range(nrepeat):
                 if currently_in_bracket:
-                    bracket_content.append(formula[char_idx:j])
+                    bracket_content.append(formula[char_idx:j])  # noqa: F821
                 else:
                     atoms.append(formula[char_idx:j])
             char_idx = j + num_digits
@@ -216,8 +243,12 @@ def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
                 bracket_content = []
             # if it's the end then add bracket contents to list
             elif formula[char_idx] == ")":
+                if not currently_in_bracket:
+                    raise ValueError(
+                        "Found closing bracket before opening bracket in formula {formula}"
+                    )
                 currently_in_bracket = False
-                num_digits = find_number_of_consecutive_digits(formula, char_idx+1)
+                num_digits = find_number_of_consecutive_digits(formula, char_idx + 1)
                 if num_digits == 0:
                     nrepeat = 1
                 else:
@@ -228,14 +259,9 @@ def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
             char_idx += 1
     return atoms
 
+
 def find_number_of_consecutive_digits(string: str, start: int) -> int:
     """Determine the number of consecutive digits in a string.
-    For example: 
-
-        >> find_number_of_consecutive_digits("Hello123", 0) -> 0,
-        >> find_number_of_consecutive_digits("Hello123", 5) -> 3,
-        >> find_number_of_consecutive_digits("Hello123", 6) -> 2,
-        >> find_number_of_consecutive_digits("He1llo23", 2) -> 1,
 
     Args:
         string (str): the string
@@ -244,6 +270,13 @@ def find_number_of_consecutive_digits(string: str, start: int) -> int:
     Returns:
         num_digits (int): the number of consecutive digits in the string
             starting from "start".
+
+    For example:
+        >> find_number_of_consecutive_digits("Hello123", 0) -> 0,
+        >> find_number_of_consecutive_digits("Hello123", 5) -> 3,
+        >> find_number_of_consecutive_digits("Hello123", 6) -> 2,
+        >> find_number_of_consecutive_digits("He1llo23", 2) -> 1,
+
     """
     num_digits = 0
     while start + num_digits < len(string) and string[start + num_digits].isdigit():
@@ -251,11 +284,37 @@ def find_number_of_consecutive_digits(string: str, start: int) -> int:
     return num_digits
 
 
-def find_all_numbers(string: str) -> dict[str, str]:
-    return dict((m.start(), m.group()) for m in re.finditer(r"\d+", string))
+def find_all_numbers(string: str) -> dict[int, str]:
+    """Find all numbers in a string.
+
+    Args:
+        string (str): string
+
+    Returns:
+        dict[int, str]: dictionary with keys the starting index,
+            and values the number at that index.
+
+    For example:
+        >> find_all_numbers("Hello123") -> {5: '123'}
+        >> find_all_numbers("He1llo23") -> {2: '1', 6: '23'}
+
+    """
+    return {m.start(): m.group() for m in re.finditer(r"\d+", string)}
 
 
 def format_formula_as_tex(formula: str, use_ch: bool = True) -> str:
+    """Format a molecular formula as a string in TeX.
+
+    Args:
+        formula (str): molecular formula
+        use_ch (bool): Whether to use ch to format it. Default: True
+
+    Returns:
+        str: formatted formula
+
+    """
+    if use_ch:
+        return f"\\ch{{{formula}}}"
     numbers = find_all_numbers(formula)
     to_skip = 0
     for j, number in numbers.items():
@@ -267,3 +326,20 @@ def format_formula_as_tex(formula: str, use_ch: bool = True) -> str:
         to_skip += len(number) + 4
     return formula
 
+
+def slurm_manager_is_installed() -> bool:
+    """Find whether the slurm_manager package is installed, and slurm is active.
+
+    Returns:
+        bool: whether slurm_manager is installed and slurm is running.
+
+    """
+    if importlib.util.find_spec("slurm_manager") is None:
+        return False
+    try:
+        # Try to import it. This import will fail if slurm is not active
+        import slurm_manager  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
