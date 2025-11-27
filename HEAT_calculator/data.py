@@ -1,3 +1,5 @@
+"""Some data about atoms."""
+
 experimental_formation_0K = {
     "O": 58.997132,
     "H": 51.633365,

@@ -5,7 +5,10 @@ version = '0.0.0'
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "ANN", "C4","ISC", "I", "PTH", "D", "W", "ERA001", "PLR2044"]
-ignore = ["PTH123", "D213", "D203"]
+ignore = ["PTH123", "D213", "D203", "D205"]
+exclude = ["examples/*.py"]
 
 [tool.ruff.lint.pycodestyle]
 max-doc-length = 88
+
+

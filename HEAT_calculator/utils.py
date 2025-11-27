@@ -1,3 +1,5 @@
+"""Useful tools."""
+
 import importlib
 import os
 import re
@@ -14,11 +16,15 @@ class InvalidMultiplicityError(Exception):
 
 
 class IncorrectGeneratedXYZ(Exception):
-    """Error to indicate that a generated XYZ file does not match the desired molecular formula."""
+    """Error to indicate that a generated XYZ file does not match
+    the desired molecular formula.
+    """
 
 
 class CalculationResult(Enum):
-    """A useful way to easily determine whether the calculation of a species succeeded or not."""
+    """A useful way to easily determine whether the calculation of a
+    species succeeded or not.
+    """
 
     SUCCESS_CALCULATED = auto()
     """Calculation succeeded"""
@@ -120,10 +126,12 @@ available_methods = [
 def get_method(
     is_atomic: bool, method: Literal[available_methods] = "G2-MP2-SVP"
 ) -> str:
-    """Verify that the desired method is valid, and add "-ATOM" to it if the species is atomic.
+    """Verify that the desired method is valid, and add "-ATOM"
+        to it if the species is atomic.
 
     Args:
-        is_atomic (bool): Whether the species is atomic (i.e. consists of only one atom)
+        is_atomic (bool): Whether the species is atomic
+            (i.e. consists of only one atom)
         method (Literal[available_methods]): one of the available methods.
             Case-insensitive. Default: "G2-MP2-SVP"
 
@@ -151,6 +159,17 @@ def write_run_orca_file(
     orca_output_path: str | Path | None = None,
     orca_path: str | Path | None = None,
 ) -> None:
+    """Write the executable file that will run ORCA.
+
+    Args:
+        run_path (str | Path): path of run file
+        orca_input_path (str | Path): ORCA input path
+        orca_output_path (str | Path | None): path of ORCA output. If None,
+            simply take the same name as orca_input_path, but with ".out"
+        orca_path (str | Path | None): path to ORCA executable.
+            If None, simply execute "orca". Default: None
+
+    """
     command = "#!/usr/bin/bash"
 
     if slurm_manager_is_installed():

@@ -1,3 +1,5 @@
+"""A collection of helpful things involving chemical species."""
+
 from __future__ import annotations
 
 import os
@@ -38,6 +40,8 @@ from .utils import (
 
 @dataclass
 class Species:
+    """Species. TODO elaborate."""
+
     name: str
     smiles: str
     charge: int = 0
@@ -46,10 +50,10 @@ class Species:
     #   string for things like name="methanol", formula="CH3OH".
 
     def __post_init__(self) -> None:
+        """Verify types of arguments of __init__, and calculate things like the mass."""
         verify_type(self.name, str, "name")
         verify_type(self.smiles, str, "smiles")
         verify_type(self.charge, int, "charge")
-        # self._check_charge_from_name()
 
         self.formula = self.name.split("_")[0]
 
@@ -122,6 +126,7 @@ class Species:
     def _verify_generated_xyz(self) -> None:
         """Verify that the generated xyz structure has the correct number of
         atoms and correct number of each element.
+
         """
         with open(self.directory / f"{self.directory_safe_name}.xyz") as file:
             lines = file.readlines()
@@ -139,7 +144,8 @@ class Species:
         file to 3 decimal places.
 
         This can help prevent ORCA from incorrectly detecting symmetries
-            and keeping geometries more constrained during optimization.
+        and keeping geometries more constrained during optimization.
+
         """
         with open(self.directory / f"{self.directory_safe_name}.xyz") as file:
             lines = file.readlines()
@@ -214,9 +220,10 @@ RunEnd"""
             from slurm_manager.job import SlurmJob
 
             job = SlurmJob.start_from_command("sbatch run.sh", directory=self.directory)
-            # TODO: This is very inefficient. For every Species, a new slurm job will be started
-            # but also a process by Pool() will be started, so two processes, and the one
-            # spawned by the pool will just be waiting. How to do this better?
+            # TODO: This is very inefficient. For every Species, a new slurm
+            # job will be started, but also a process by Pool() will be started,
+            # so two processes, and the one spawned by the pool will just be waiting.
+            # How to do this better?
             try:
                 job.wait()
             except KeyboardInterrupt as e:
@@ -268,8 +275,10 @@ RunEnd"""
         """Calculate the enthalpy of formation.
 
         Args:
-            calculated_reference_atoms (dict[str, Species]):
-            experimental_reference_atoms (dict[str, float]):
+            calculated_reference_atoms (dict[str, Species]): dictionary of calculated
+                reference atoms
+            experimental_reference_atoms (dict[str, float]): dictionary of
+                enthalpies of formation of reference atoms
 
         Returns:
             formation_enthalpy (float): enthalpy of formation in kcal/mol
@@ -296,23 +305,23 @@ RunEnd"""
         """
         return determine_atoms_from_molecular_formula(self.formula)
 
-    # TODO: Remove this?
-    # def _check_charge_from_name(self) -> None:
-    #     """Checks the charge from the name, and corrects the given charge"""
-    #     if "-" in self.name:
-    #         if self.charge != -1:
-    #             print(f"Warning: Assuming the ion {self.name} is singly charged")
-    #             print(
-    #                 f"Found '-' in name of species {self}, but charge was {self.charge}. Setting charge to -1"
-    #             )
-    #             self.charge = -1
-    #     elif "+" in self.name:
-    #         if self.charge != 1:
-    #             print(f"Warning: Assuming the ion {self.name} is singly charged")
-    #             print(
-    #                 f"Found '+' in name of species {self}, but charge was {self.charge}. Setting charge to 1"
-    #             )
-    #             self.charge = 1
+    def _check_charge_from_name(self) -> None:
+        """Check the charge from the name, and corrects the given charge."""
+        # TODO: Remove this?
+        if "-" in self.name:
+            if self.charge != -1:
+                print(f"Warning: Assuming the ion {self.name} is singly charged")
+                print(
+                    f"Found '-' in name of species {self}, but charge was {self.charge}. Setting charge to -1"
+                )
+                self.charge = -1
+        elif "+" in self.name:
+            if self.charge != 1:
+                print(f"Warning: Assuming the ion {self.name} is singly charged")
+                print(
+                    f"Found '+' in name of species {self}, but charge was {self.charge}. Setting charge to 1"
+                )
+                self.charge = 1
 
     @property
     def num_atoms(self) -> int:
@@ -516,14 +525,18 @@ def calculate_species(
 
     Args:
         species_lst (list[Species]): list of all species
-        orca_path (str | Path | None): path to ORCA executable. If None, simply execute "orca". Default: None
+        orca_path (str | Path | None): path to ORCA executable.
+            If None, simply execute "orca". Default: None
         directory (str | Path | None): directory to calculate in. Default: None
         method (Literal[available_methods]): method to use. Default: "G2-MP2-SVP"
-        force (bool): whether to do the calculation, even if it was attempted previously. Default: False
-        reduce_coordinate_precision (bool): whether to reduce the precision of numbers in the generated
-            xyz file. This can help with ORCA inferring incorrect symmetries. Default: True
+        force (bool): whether to do the calculation, even if it was attempted
+            previously. Default: False
+        reduce_coordinate_precision (bool): whether to reduce the precision of
+            coordinates in the generated xyz file. This can help with ORCA inferring
+            incorrect symmetries. Default: True
         njobs (int): Number of calculations to run at the same time. Default: 1
-        disable_progress_bar (bool): whether to disable the progress bar. Default: False
+        disable_progress_bar (bool): whether to disable the progress bar.
+            Default: False
 
     Return:
         calculated_species (dict[str, Species]): dictionary of calculated species
@@ -569,23 +582,29 @@ def calculate_dct_species(
     njobs: int = 1,
     disable_progress_bar: bool = False,
 ) -> dict[str, Species]:
-    """Create Species instances from a dictionary, and calculate their ground state energies.
+    """Create Species instances from a dictionary, and calculate their ground
+    state energies.
 
     Args:
-        species_dct (dict[str, tuple[str, int, int | None]): dictionary of all species. Keys are names of species,
-            and values are a tuple of (smiles, charge, multiplicity). If multiplicity is None,
+        species_dct (dict[str, tuple[str, int, int | None]): dictionary of all species.
+            Keys are names of species, and values are a tuple of
+            (smiles, charge, multiplicity). If multiplicity is None,
             multiplicities up to max_multiplicity are attempted.
         max_multiplicity (int): maximum multiplicity to try. Default: 4
-        orca_path (str | Path | None): path to ORCA executable. If None, simply execute "orca". Default: None
+        orca_path (str | Path | None): path to ORCA executable.
+            If None, simply execute "orca". Default: None
         directory (str | Path | None): directory to calculate in. Default: None
         method (Literal[available_methods]): method to use. Default: "G2-MP2-SVP"
-        force (bool): whether to do the calculation, even if it was attempted previously. Default: False
-        reduce_coordinate_precision (bool): whether to reduce the precision of numbers in the generated
-            xyz file. This can help with ORCA inferring incorrect symmetries. Default: True
+        force (bool): whether to do the calculation, even if it was attempted
+            previously. Default: False
+        reduce_coordinate_precision (bool): whether to reduce the precision of
+            coordinates in the generated xyz file. This can help with ORCA inferring
+            incorrect symmetries. Default: True
         njobs (int): Number of calculations to run at the same time. Default: 1
-        disable_progress_bar (bool): whether to disable the progress bar. Default: False
+        disable_progress_bar (bool): whether to disable the progress bar.
+            Default: False
 
-    Return:
+    Returns:
         dict[str, Species]: ground state calculated Species
 
     """
@@ -636,12 +655,18 @@ def calculate_reference_species(
     Args:
         reference_atoms (list[str]): list of atoms to calculate reference energies for
         max_multiplicity (int): maximum multiplicity to try. Default: 4
-        orca_path (str | Path | None): path to ORCA executable. If None, simply execute "orca". Default: None
+        orca_path (str | Path | None): path to ORCA executable.
+            If None, simply execute "orca". Default: None
         directory (str | Path | None): directory to calculate in. Default: None
         method (Literal[available_methods]): method to use. Default: "G2-MP2-SVP"
-        force (bool): whether to do the calculation, even if it was attempted previously. Default: False
+        force (bool): whether to do the calculation, even if it was attempted
+            previously. Default: False
+        reduce_coordinate_precision (bool): whether to reduce the precision of
+            coordinates in the generated xyz file. This can help with ORCA inferring
+            incorrect symmetries. Default: True
         njobs (int): Number of calculations to run at the same time. Default: 1
-        disable_progress_bar (bool): whether to disable the progress bar. Default: False
+        disable_progress_bar (bool): whether to disable the progress bar.
+            Default: False
 
     Return:
         ground_species (dict[str, Species]): ground state reference atoms
