@@ -197,7 +197,8 @@ class Species:
 
     def _get_orca_input(self, method: Literal[available_methods] = "G2-MP2-SVP") -> str:
         method = get_method(self.is_atomic(), method=method)
-        input_text = f"""# Automatically generated ORCA input at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        input_text = f"""\
+        # Automatically generated ORCA input at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
         # Calculate high accuracy energies for the use of calculating thermodynamic values
         !compound[{method}]
         * xyzfile {self.charge} {self.multiplicity} {self.xyz_path.name}

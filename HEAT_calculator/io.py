@@ -35,6 +35,7 @@ def read_final_energy_from_compound(filepath: str | Path) -> float:
             energy = float(inner_line.split()[-1])
             return energy
 
+
 def determine_reason_calculation_failed(filepath: str | Path) -> CalculationResult:
     """Determine why a calculation failed.
 
@@ -76,7 +77,8 @@ def write_run_orca_file(
     command = "#!/usr/bin/bash"
 
     if slurm_manager_is_installed():
-        slurm_options = dedent("""#SBATCH --nodes 1
+        slurm_options = dedent("""\
+            #SBATCH --nodes 1
             #SBATCH --ntasks-per-node 1
             #SBATCH --cpus-per-task 1
             #SBATCH --threads-per-core 1
@@ -155,9 +157,11 @@ def write_xyz(
         comment = ""
 
     if num_decimal_places is not None:
-        verify_type(num_decimal_places, int, 'num_decimal_places')
+        verify_type(num_decimal_places, int, "num_decimal_places")
         if not num_decimal_places > 0:
-            raise ValueError(f"num_decimal_places should be bigger than 0, but was {num_decimal_places}")
+            raise ValueError(
+                f"num_decimal_places should be bigger than 0, but was {num_decimal_places}"
+            )
         coordinates = [
             [round(coord, num_decimal_places) for coord in atom_coordinates]
             for atom_coordinates in coordinates
@@ -173,4 +177,3 @@ def write_xyz(
     lines = "\n".join((f"{len(atoms)}\n{comment}", coordinate_lines, ""))
     with open(filepath, "w") as file:
         file.write(lines)
-
