@@ -23,21 +23,23 @@ from .data import (
     atomic_numbers,
     experimental_formation_0K,
 )
+from .io import (
+    determine_reason_calculation_failed,
+    read_final_energy_from_compound,
+    read_xyz,
+    write_run_orca_file,
+    write_xyz,
+)
 from .utils import (
     CalculationResult,
     IncorrectGeneratedXYZ,
     InvalidMultiplicityError,
     available_methods,
     determine_atoms_from_molecular_formula,
-    determine_reason_calculation_failed,
     format_formula_as_tex,
     get_method,
-    read_final_energy_from_compound,
-    read_xyz,
     slurm_manager_is_installed,
     verify_type,
-    write_run_orca_file,
-    write_xyz,
 )
 
 
@@ -92,12 +94,7 @@ class Species:
                 inferring incorrect symmetries. Default: True
 
         """
-        if directory is not None:
-            self.directory = Path(directory) / self.directory_safe_name
-        else:
-            self.directory = Path(self.directory_safe_name)
-        if not self.directory.is_dir():
-            self.directory.mkdir(parents=True)
+        self._setup_paths(directory=directory)
 
         self._generate_xyz(
             atoms_and_coordinates=atoms_and_coordinates,
@@ -105,8 +102,27 @@ class Species:
         )
 
         input = self._get_orca_input(method=method)
-        with open(self.directory / f"{self.directory_safe_name}.inp", "w") as file:
+        with open(self.orca_inp_path) as file:
             file.write(input)
+
+    def _setup_paths(self, directory: str | Path | None = None) -> None:
+        """Set up the paths for input, xyz and smiles.
+
+        Args:
+            directory (str | Path | None): directory to calculate in. Default: None
+
+        """
+        if directory is not None:
+            self.directory = Path(directory) / self.directory_safe_name
+        else:
+            self.directory = Path(self.directory_safe_name)
+        if not self.directory.is_dir():
+            self.directory.mkdir(parents=True)
+
+        self.smi_path = self.directory / f"{self.directory_safe_name}.smi"
+        self.xyz_path = self.directory / f"{self.directory_safe_name}.xyz"
+        self.orca_inp_path = self.directory / f"{self.directory_safe_name}.inp"
+
 
     def _generate_xyz(
         self,
@@ -124,9 +140,9 @@ class Species:
 
         """
         if atoms_and_coordinates is None:
-            with open(self.directory / f"{self.directory_safe_name}.smi", "w") as file:
+            with open(self.smi_path, "w") as file:
                 file.write(self.smiles)
-            command = f'obabel --title "{self.name}, created from SMILES {self.smiles}" -ismi {self.directory / self.directory_safe_name}.smi -oxyz -O {self.directory / self.directory_safe_name}.xyz -h --gen3d --best'
+            command = f'obabel --title "{self.name}, created from SMILES {self.smiles}" -ismi {self.smi_path} -oxyz -O {self.xyz_path} -h --gen3d --best'
             try:
                 result = run(command.split(), text=True, capture_output=True)
             except FileNotFoundError as e:
@@ -140,7 +156,7 @@ class Species:
         else:
             write_xyz(
                 *atoms_and_coordinates,
-                self.directory / f"{self.directory_safe_name}.xyz",
+                self.xyz_path,
                 comment=f"{self.name}, created from user-supplied coordinates",
             )
 
@@ -154,7 +170,7 @@ class Species:
         atoms and correct number of each element.
 
         """
-        atoms, _, _ = read_xyz(self.directory / f"{self.directory_safe_name}.xyz")
+        atoms, _, _ = read_xyz(self.xyz_path)
         if not self.num_atoms == len(atoms):
             raise IncorrectGeneratedXYZ(
                 f"Number of atoms in generated xyz file ({len(atoms)}) does not match the number of atoms inferred from the molecular formula ({self.num_atoms}) of {self.formula}. Check smiles ({self.smiles})"
@@ -172,20 +188,14 @@ class Species:
         and keeping geometries more constrained during optimization.
 
         """
-        atoms, coordinates, comment = read_xyz(
-            self.directory / f"{self.directory_safe_name}.xyz"
-        )
-
-        coordinates = [
-            [round(coord, 3) for coord in atom_coordinates]
-            for atom_coordinates in coordinates
-        ]
+        atoms, coordinates, comment = read_xyz(self.xyz_path)
 
         write_xyz(
             atoms,
             coordinates,
-            self.directory / f"{self.directory_safe_name}.xyz",
+            self.xyz_path,
             comment=comment,
+            num_decimal_places=3,
         )
 
     def _get_orca_input(self, method: Literal[available_methods] = "G2-MP2-SVP") -> str:
@@ -240,7 +250,7 @@ class Species:
             orca_path = "orca"
         write_run_orca_file(
             self.directory / "run.sh",
-            f"{self.directory_safe_name}.inp",
+            self.orca_inp_path.name,
             orca_path=orca_path,
         )
 
