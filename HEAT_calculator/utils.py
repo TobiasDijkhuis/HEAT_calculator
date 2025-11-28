@@ -47,10 +47,6 @@ class CalculationResult(Enum):
     """Calculation failed for a reason that is not explicitly implemented"""
 
 
-
-
-
-
 def set_file_executable(filepath: str | Path) -> None:
     """Set a file to be executable from subprocess.run.
 
@@ -120,7 +116,6 @@ def get_method(
     return method
 
 
-
 def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
     """Determine the constituent atoms in a molecular formula.
 
@@ -150,14 +145,12 @@ def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
     while char_idx < len(formula):
         # if character isn't a + or - then check it, otherwise move on
         if formula[char_idx] not in ["+", "-", "(", ")"]:
-            if char_idx + 1 < len(formula):
+            if (
+                char_idx + 1 < len(formula)
+                and formula[char_idx : char_idx + 2] in element_list
+            ):
                 # if next two characters are (eg) 'MG' then atom is Mg not M and G
-                if formula[char_idx : char_idx + 2] in element_list:
-                    j = char_idx + 2
-                # otherwise work out which element it is
-                elif formula[char_idx] in element_list:
-                    j = char_idx + 1
-
+                j = char_idx + 2
             # if there aren't two characters left just try next one
             elif formula[char_idx] in element_list:
                 j = char_idx + 1
@@ -199,6 +192,8 @@ def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
                     atoms.extend(bracket_content)
                 char_idx += num_digits
             char_idx += 1
+    if currently_in_bracket:
+        raise ValueError(f"Opening bracket was not closed in formula {formula}")
     return atoms
 
 
@@ -285,7 +280,6 @@ def slurm_manager_is_installed() -> bool:
         return True
     except ImportError:
         return False
-
 
 
 def calculate_center_of_mass(
