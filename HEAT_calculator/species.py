@@ -72,8 +72,6 @@ class Species:
         self.elements = list(set(self.constituents))
         self.mass = self._calculate_mass()
 
-        self.directory_safe_name = self.name.replace(")", "b").replace("(", "b")
-
     def write_input_files(
         self,
         directory: str | Path | None = None,
@@ -112,6 +110,8 @@ class Species:
             directory (str | Path | None): directory to calculate in. Default: None
 
         """
+        self.directory_safe_name = self.name.replace(")", "b").replace("(", "b")
+
         if directory is not None:
             self.directory = Path(directory) / self.directory_safe_name
         else:
@@ -123,7 +123,6 @@ class Species:
         self.xyz_path = self.directory / f"{self.directory_safe_name}.xyz"
         self.orca_inp_path = self.directory / f"{self.directory_safe_name}.inp"
 
-
     def _generate_xyz(
         self,
         atoms_and_coordinates: tuple[list[str], list[list[float]]] | None = None,
@@ -131,12 +130,13 @@ class Species:
     ) -> None:
         """Generate the coordinates of the Species.
 
-        atoms_and_coordinates (tuple[list[str], list[list[float]]] | None):
-            list of atoms, and list of coordinates of atoms in Angstrom.
-            If None, generate the structure using OpenBabel.
-        reduce_coordinate_precision (bool): whether to reduce the precision of
-            coordinates in the generated xyz file. This can help with ORCA
-            inferring incorrect symmetries. Default: True
+        Args:
+            atoms_and_coordinates (tuple[list[str], list[list[float]]] | None):
+                list of atoms, and list of coordinates of atoms in Angstrom.
+                If None, generate the structure using OpenBabel.
+            reduce_coordinate_precision (bool): whether to reduce the precision of
+                coordinates in the generated xyz file. This can help with ORCA
+                inferring incorrect symmetries. Default: True
 
         """
         if atoms_and_coordinates is None:
@@ -160,17 +160,21 @@ class Species:
                 comment=f"{self.name}, created from user-supplied coordinates",
             )
 
-        self._verify_generated_xyz()
+        self._process_generated_xyz(
+            reduce_coordinate_precision=reduce_coordinate_precision
+        )
 
-        if reduce_coordinate_precision:
-            self._reduce_coordinate_precision()
-
-    def _verify_generated_xyz(self) -> None:
+    def _process_generated_xyz(self, reduce_coordinate_precision: bool = True) -> None:
         """Verify that the generated xyz structure has the correct number of
         atoms and correct number of each element.
 
+        Args:
+            reduce_coordinate_precision (bool): whether to reduce the precision of
+                coordinates in the generated xyz file. This can help with ORCA
+                inferring incorrect symmetries. Default: True
+
         """
-        atoms, _, _ = read_xyz(self.xyz_path)
+        atoms, coordinates, comment = read_xyz(self.xyz_path)
         if not self.num_atoms == len(atoms):
             raise IncorrectGeneratedXYZ(
                 f"Number of atoms in generated xyz file ({len(atoms)}) does not match the number of atoms inferred from the molecular formula ({self.num_atoms}) of {self.formula}. Check smiles ({self.smiles})"
@@ -180,15 +184,8 @@ class Species:
                 f"The atoms in the generated xyz file and inferred from the formula did not match.\nGenerated: {sorted(atoms)}\nFormula: {sorted(self.constituents)}"
             )
 
-    def _reduce_coordinate_precision(self) -> None:
-        """Reduce the precision of coordinates in the generated xyz
-        file to 3 decimal places.
-
-        This can help prevent ORCA from incorrectly detecting symmetries
-        and keeping geometries more constrained during optimization.
-
-        """
-        atoms, coordinates, comment = read_xyz(self.xyz_path)
+        if not reduce_coordinate_precision:
+            return
 
         write_xyz(
             atoms,
@@ -203,10 +200,10 @@ class Species:
         input_text = f"""# Automatically generated ORCA input at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
         # Calculate high accuracy energies for the use of calculating thermodynamic values
         !compound[{method}]
-        * xyzfile {self.charge} {self.multiplicity} {self.directory_safe_name}.xyz
+        * xyzfile {self.charge} {self.multiplicity} {self.xyz_path.name}
         %compound[{method}]
             with
-                molecule = {self.directory_safe_name}.xyz
+                molecule = {self.xyz_path.name}
         RunEnd"""
         return dedent(input_text)
 
@@ -292,18 +289,17 @@ class Species:
 
     def _check_necessary_input_files(self) -> None:
         """Check that the input files are written in the correct directories."""
+        # This needs to be redone. If the input files have not been written,
+        # also self.directory, self.xyz_path, self.orca_inp_path do not exist.
+        # Maybe do hasattr(self, 'directory') stuff?
         if not self.directory.is_dir():
             raise NotADirectoryError(
                 f"{self.directory} is not a directory. This directory should be created during Species.write_input_files. Write input files before trying to calculate energy."
             )
-        if not (self.directory / f"{self.directory_safe_name}.xyz").is_file():
-            raise FileNotFoundError(
-                f"File {self.directory / f'{self.directory_safe_name}.xyz'} does not exist."
-            )
-        if not (self.directory / f"{self.directory_safe_name}.inp").is_file():
-            raise FileNotFoundError(
-                f"File {self.directory / f'{self.directory_safe_name}.inp'} does not exist."
-            )
+        if not self.xyz_path.is_file():
+            raise FileNotFoundError(f"File {self.xyz_path} does not exist.")
+        if not self.orca_inp_path.is_file():
+            raise FileNotFoundError(f"File {self.orca_inp_path} does not exist.")
 
     def calculate_enthalpy_of_formation(
         self,
@@ -324,7 +320,11 @@ class Species:
         """
         if not hasattr(self, "energy"):
             raise AttributeError(
-                "Calculating the enthalpy of formation of a Species requires the energy. Calculate the energy first using Species.calculate_energy"
+                f"Calculating the enthalpy of formation of Species {self} requires the energy. Calculate the energy first using Species.calculate_energy"
+            )
+        if self.energy is None:
+            raise ValueError(
+                f"Energy of Species {self} was None. Calculating the enthalpy of formation requires valid energy"
             )
         formation_enthalpy = self.energy
         for atom in self.constituents:
