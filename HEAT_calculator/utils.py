@@ -180,7 +180,7 @@ def determine_atoms_from_molecular_formula(formula: str) -> list[str]:
             elif formula[char_idx] == ")":
                 if not currently_in_bracket:
                     raise ValueError(
-                        "Found closing bracket before opening bracket in formula {formula}"
+                        f"Found closing bracket before opening bracket in formula {formula}"
                     )
                 currently_in_bracket = False
                 num_digits = find_number_of_consecutive_digits(formula, char_idx + 1)

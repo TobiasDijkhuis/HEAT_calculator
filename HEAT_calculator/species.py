@@ -58,19 +58,16 @@ class Species:
     #   we really dont need the smiles if we have the atoms and coordinates.
 
     def __post_init__(self) -> None:
-        """Verify types of arguments of __init__, and calculate things like the mass."""
+        """Verify types of arguments of __init__, and find the constituents."""
         verify_type(self.name, str, "name")
         verify_type(self.smiles, str, "smiles")
         verify_type(self.charge, int, "charge")
 
         self.formula = self.name.split("_")[0]
 
-        self.constituents = self._find_constituents()
+        self.constituents = determine_atoms_from_molecular_formula(self.formula)
         self.num_electrons = self._calculate_num_electrons()
         self._verify_multiplicity()
-
-        self.elements = list(set(self.constituents))
-        self.mass = self._calculate_mass()
 
     def write_input_files(
         self,
@@ -346,15 +343,6 @@ class Species:
             )
         return read_xyz(self.directory / f"{self.directory_safe_name}_Compound_2.xyz")
 
-    def _find_constituents(self) -> list[str]:
-        """Loop through the species' name and work out what its consituent atoms are.
-
-        Returns:
-            atoms (list[str]): list of atoms in molecule
-
-        """
-        return determine_atoms_from_molecular_formula(self.formula)
-
     def _check_charge_from_name(self) -> None:
         """Check the charge from the name, and corrects the given charge."""
         # TODO: Remove this?
@@ -372,16 +360,6 @@ class Species:
                     f"Found '+' in name of species {self}, but charge was {self.charge}. Setting charge to 1"
                 )
                 self.charge = 1
-
-    @property
-    def num_atoms(self) -> int:
-        """Number of atoms inferred from molecular formula.
-
-        Returns:
-            int: number of atoms in the molecule
-
-        """
-        return len(self.constituents)
 
     def is_atomic(self) -> bool:
         """Whether the species is atomic.
@@ -405,7 +383,8 @@ class Species:
         num_electrons -= self.charge
         return num_electrons
 
-    def _calculate_mass(self) -> float:
+    @property
+    def mass(self) -> float:
         """Calculate the mass of the molecule.
 
         Returns:
@@ -416,6 +395,26 @@ class Species:
         for atom in self.constituents:
             mass += atomic_masses[atom]
         return mass
+
+    @property
+    def num_atoms(self) -> int:
+        """Number of atoms inferred from molecular formula.
+
+        Returns:
+            int: number of atoms in the molecule
+
+        """
+        return len(self.constituents)
+
+    @property
+    def elements(self) -> list[str]:
+        """Elements that make up the Species.
+
+        Returns:
+            list[str]: list of elements.
+
+        """
+        return list(set(self.constituents))
 
     def _verify_multiplicity(self) -> None:
         """Verify the given multiplicity. If the number of electrons is even,
